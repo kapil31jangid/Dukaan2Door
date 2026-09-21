@@ -1,6 +1,9 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from app.core.config import settings
+from app.core.deps import get_db
 from app.routers import (
     auth,
     customers,
@@ -38,9 +41,20 @@ app.include_router(orders.router, prefix=api_prefix)
 
 
 @app.get("/health", tags=["Health Check"])
-def health_check():
+def health_check(db: Session = Depends(get_db)):
     """Service health check endpoint for Cloud Run and load balancers."""
-    return {"status": "ok", "service": settings.PROJECT_NAME}
+    db_status = "unhealthy"
+    try:
+        db.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "disconnected"
+
+    return {
+        "status": "ok",
+        "service": settings.PROJECT_NAME,
+        "database": db_status,
+    }
 
 
 @app.get("/", tags=["Root"])
