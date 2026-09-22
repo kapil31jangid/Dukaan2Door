@@ -21,7 +21,7 @@ Generated after final backend integration and verification.
 | OSRM routing | IMPLEMENTED | `app/services/routing_service.py`, mocked routing tests |
 | Tracking | IMPLEMENTED | `delivery_tracking` model and tracking tests |
 | WebSockets | IMPLEMENTED | `app/routers/websocket.py`, WebSocket event tests |
-| Database/migrations | IMPLEMENTED WITH KNOWN LIVE DB HISTORY GAP | Alembic head `20260922_0002`; no destructive migration run |
+| Database/migrations | IMPLEMENTED | Alembic head `20260922_0002`; live Neon schema verified and stamped after physical schema alignment |
 | Tests | IMPLEMENTED | `39 passed` |
 | Configuration/deployment readiness | IMPLEMENTED | env-driven settings, Render-compatible Uvicorn startup |
 
@@ -72,7 +72,8 @@ Results:
 - OpenAPI generation: PASS, 24 paths generated
 - Uvicorn startup: PASS
 - Alembic heads: PASS, one head `20260922_0002`
-- Alembic current: inspected safely; live Neon history remains a known non-destructive gap from earlier work
+- Alembic current: PASS, live Neon is recorded at `20260922_0002`
+- Neon workflow verification: PASS, API-created order completed through delivery and tracking
 
 ## Final Lifecycle
 
@@ -93,6 +94,7 @@ Customer Order
 
 - No production data was dropped, truncated, reset, or fabricated.
 - Real dataset staging remains separate from application tables.
+- Operational demo records are fictional application data and are not represented as real external dataset records.
 - Store matching uses real application `stores`, `products`, `inventory`, and customer/order coordinates.
 - OSRM is env-configured through `OSRM_BASE_URL`; no Google Maps or paid mapping provider was added.
 - WebSocket broadcasting is in-memory and appropriate for a single Render web service instance. A multi-instance deployment would need shared pub/sub.

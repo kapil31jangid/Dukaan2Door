@@ -50,3 +50,5 @@ python scripts/verify_ingestion.py
 ## Mapping Policy
 
 External datasets are staged in `source_*` tables first. They are not forced into Dukaan2Door application tables when required fields such as real retailer/store coordinates, customer addresses, or delivery data are absent.
+
+Operational demo records are separate fictional application records used to exercise the live workflow. They are not sourced from Kaggle and are not presented as real stores, customers, or delivery partners.

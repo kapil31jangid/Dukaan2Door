@@ -89,6 +89,19 @@ Dataset staging tables include:
 
 Source dataset records are kept separate from operational application records. External datasets are not converted into operational stores, customers, delivery partners, or coordinates when the source data does not provide those fields.
 
+## Neon Operational Readiness
+
+The live Neon database is aligned with the current SQLAlchemy models and Alembic head `20260922_0002`. Existing rows were preserved during schema alignment; legacy source/staging tables remain separate from operational tables.
+
+The repository includes scripts for controlled demo readiness:
+
+```bash
+python scripts/seed_operational_demo.py
+python scripts/verify_neon_demo_workflow.py
+```
+
+The seed script creates fictional operational demo accounts, stores, products, inventory, customers, and delivery partners. The verification script creates orders through the API and exercises store matching, inventory decrement, delivery assignment, delivery state transitions, and tracking against Neon.
+
 ## Local Backend Setup
 
 ```bash
@@ -142,5 +155,6 @@ Render supplies `PORT` at runtime. Do not commit `.env` or production credential
 
 - [Backend Architecture & Services](docs/backend-architecture.md)
 - [Backend Completion Report](docs/backend-completion-report.md)
+- [Neon Operational Readiness](docs/neon-operational-readiness.md)
 - [Data Ingestion](docs/data-ingestion.md)
 - [Data Assets](data/README.md)

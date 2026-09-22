@@ -12,6 +12,10 @@ access_token
 __pycache__/
 *.py[cod]
 
+# Local Codex/agent tooling
+.agents/
+skills-lock.json
+
 # Environment variables
 .env
 .env.*
