@@ -12,6 +12,18 @@ venv.bak/
 
 # Environment variables
 .env
+.env.*
+!.env.example
+
+# External datasets and credentials
+../data/raw/
+../data/staging/
+../data/processed/
+*.zip
+*.csv
+*.xlsx
+kaggle.json
+access_token
 
 # Pytest / Coverage
 .pytest_cache/

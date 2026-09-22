@@ -1,0 +1,18 @@
+# External datasets and credentials
+data/raw/
+data/staging/
+data/processed/
+*.zip
+*.csv
+*.xlsx
+kaggle.json
+access_token
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+.env.*
+!.env.example

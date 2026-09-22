@@ -6,6 +6,7 @@ from app.models.order import Order, OrderItem, OrderStatus
 from app.models.product import Product
 from app.models.retailer import Retailer
 from app.models.store import Store
+from app.models.source_data import SourceDataset, SourceInventory, SourceOrder, SourceOrderItem, SourceProduct
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -21,6 +22,11 @@ __all__ = [
     "Product",
     "Retailer",
     "Store",
+    "SourceDataset",
+    "SourceInventory",
+    "SourceOrder",
+    "SourceOrderItem",
+    "SourceProduct",
     "User",
     "UserRole",
 ]

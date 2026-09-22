@@ -1,0 +1,102 @@
+[
+  {
+    "platform": "zepto",
+    "provider": "Kaggle",
+    "dataset": "palvinder2006/zepto-inventory-dataset",
+    "source_url": "https://www.kaggle.com/datasets/palvinder2006/zepto-inventory-dataset",
+    "license": "MIT",
+    "download_date": "2026-09-22T14:22:42.599172+00:00",
+    "files": [
+      {
+        "filename": "zepto_v1.xlsx",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/zepto/zepto_v1.xlsx",
+        "size_bytes": 197657,
+        "file_type": "xlsx"
+      },
+      {
+        "filename": "zepto_v2.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/zepto/zepto_v2.csv",
+        "size_bytes": 300179,
+        "file_type": "csv"
+      }
+    ]
+  },
+  {
+    "platform": "blinkit",
+    "provider": "Kaggle",
+    "dataset": "lavudyaswamy/blinkit-grocery-sales-dataset-excel",
+    "source_url": "https://www.kaggle.com/datasets/lavudyaswamy/blinkit-grocery-sales-dataset-excel",
+    "license": "CC0-1.0",
+    "download_date": "2026-09-22T14:22:42.599172+00:00",
+    "files": [
+      {
+        "filename": "BlinkIT Grocery Data Excel (1).xlsx",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/blinkit/BlinkIT Grocery Data Excel (1).xlsx",
+        "size_bytes": 612577,
+        "file_type": "xlsx"
+      }
+    ]
+  },
+  {
+    "platform": "instacart",
+    "provider": "Kaggle",
+    "dataset": "psparks/instacart-market-basket-analysis",
+    "source_url": "https://www.kaggle.com/datasets/psparks/instacart-market-basket-analysis",
+    "license": "CC0-1.0",
+    "download_date": "2026-09-22T14:22:42.599172+00:00",
+    "files": [
+      {
+        "filename": "aisles.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/instacart/aisles.csv",
+        "size_bytes": 2603,
+        "file_type": "csv"
+      },
+      {
+        "filename": "departments.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/instacart/departments.csv",
+        "size_bytes": 270,
+        "file_type": "csv"
+      },
+      {
+        "filename": "order_products__prior.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/instacart/order_products__prior.csv",
+        "size_bytes": 577550706,
+        "file_type": "csv"
+      },
+      {
+        "filename": "order_products__train.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/instacart/order_products__train.csv",
+        "size_bytes": 24680147,
+        "file_type": "csv"
+      },
+      {
+        "filename": "orders.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/instacart/orders.csv",
+        "size_bytes": 108968645,
+        "file_type": "csv"
+      },
+      {
+        "filename": "products.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/instacart/products.csv",
+        "size_bytes": 2166953,
+        "file_type": "csv"
+      }
+    ]
+  },
+  {
+    "platform": "bigbasket",
+    "provider": "Kaggle",
+    "dataset": "chinmayshanbhag/big-basket-products",
+    "source_url": "https://www.kaggle.com/datasets/chinmayshanbhag/big-basket-products",
+    "license": "CC0-1.0",
+    "download_date": "2026-09-22T14:22:42.599172+00:00",
+    "files": [
+      {
+        "filename": "BigBasket.csv",
+        "path": "/home/kapil31jangid/Dukaan2Door/data/raw/bigbasket/BigBasket.csv",
+        "size_bytes": 2709656,
+        "file_type": "csv"
+      }
+    ]
+  }
+]
