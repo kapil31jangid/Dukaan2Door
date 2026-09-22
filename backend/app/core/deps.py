@@ -4,6 +4,7 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
+from app.services.auth_service import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -23,7 +24,7 @@ def get_db() -> Generator:
         db.close()
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> UserContext:
+def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_db)) -> UserContext:
     """Validate access token and return current authenticated user context."""
     payload = decode_access_token(token)
     if not payload:
@@ -51,7 +52,15 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> UserContext:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return UserContext(user_id=user_id, role=role)
+    user = get_user_by_id(db, user_id)
+    if not user or user.role.value != role:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authenticated user no longer exists or role has changed",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return UserContext(user_id=user.id, role=user.role.value, email=user.email)
 
 
 def require_role(allowed_roles: List[str]):

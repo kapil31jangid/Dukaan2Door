@@ -42,7 +42,7 @@ app.include_router(orders.router, prefix=api_prefix)
 
 @app.get("/health", tags=["Health Check"])
 def health_check(db: Session = Depends(get_db)):
-    """Service health check endpoint for Cloud Run and load balancers."""
+    """Service health check endpoint for Render and other web service hosts."""
     db_status = "unhealthy"
     try:
         db.execute(text("SELECT 1"))

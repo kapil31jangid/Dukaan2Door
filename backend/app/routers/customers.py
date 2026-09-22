@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends
-from app.core.deps import UserContext, require_role
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from app.core.deps import UserContext, get_db, require_role
+from app.models.customer import Customer
 from app.schemas.user import CustomerProfile, CustomerUpdate
 
 router = APIRouter(prefix="/customers", tags=["Customer Profiles"])
@@ -12,17 +14,13 @@ router = APIRouter(prefix="/customers", tags=["Customer Profiles"])
 )
 def get_customer_profile(
     current_user: UserContext = Depends(require_role(["customer"])),
+    db: Session = Depends(get_db),
 ):
     """Retrieve customer profile details including saved delivery address and coordinates."""
-    return CustomerProfile(
-        id=1,
-        user_id=current_user.user_id,
-        name="Sample Customer",
-        phone="9876543210",
-        delivery_address="123 Main St",
-        lat=28.6139,
-        lng=77.2090,
-    )
+    customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer profile not found")
+    return CustomerProfile.model_validate(customer, from_attributes=True)
 
 
 @router.put(
@@ -33,14 +31,14 @@ def get_customer_profile(
 def update_customer_profile(
     payload: CustomerUpdate,
     current_user: UserContext = Depends(require_role(["customer"])),
+    db: Session = Depends(get_db),
 ):
     """Update delivery address, phone, or name for the authenticated customer."""
-    return CustomerProfile(
-        id=1,
-        user_id=current_user.user_id,
-        name=payload.name or "Sample Customer",
-        phone=payload.phone or "9876543210",
-        delivery_address=payload.delivery_address or "123 Main St",
-        lat=payload.lat if payload.lat is not None else 28.6139,
-        lng=payload.lng if payload.lng is not None else 77.2090,
-    )
+    customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer profile not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(customer, field, value)
+    db.commit()
+    db.refresh(customer)
+    return CustomerProfile.model_validate(customer, from_attributes=True)

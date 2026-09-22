@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source code
 COPY . .
 
-# Expose port (Google Cloud Run uses $PORT env variable, default 8080)
+# Expose default local/container port. Production hosts should provide $PORT.
 EXPOSE 8080
 
-# Run uvicorn server bound to $PORT
+# Run uvicorn server bound to $PORT when provided, with a local/container fallback.
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

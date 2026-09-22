@@ -1,7 +1,16 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from app.core.deps import UserContext, get_current_user, require_role
+from sqlalchemy.orm import Session
+from app.core.deps import UserContext, get_current_user, get_db, require_role
 from app.integrations.notifier import notify_order_status
+from app.models.customer import Customer
+from app.models.delivery import Delivery
+from app.models.delivery_partner import DeliveryPartner
+from app.models.inventory import Inventory
+from app.models.order import Order, OrderItem, OrderStatus as ModelOrderStatus
+from app.models.product import Product
+from app.models.retailer import Retailer
+from app.models.store import Store
 from app.schemas.order import (
     OrderCreate,
     OrderItemResponse,
@@ -17,6 +26,65 @@ from app.services.order_service import validate_status_transition
 router = APIRouter(prefix="/orders", tags=["Order Management & Lifecycle"])
 
 
+def _schema_status(model_status: ModelOrderStatus) -> OrderStatus:
+    return OrderStatus(model_status.value)
+
+
+def _model_status(schema_status: OrderStatus) -> ModelOrderStatus:
+    return ModelOrderStatus(schema_status.value)
+
+
+def _order_to_response(order: Order) -> OrderResponse:
+    return OrderResponse(
+        id=order.id,
+        customer_id=order.customer_id,
+        store_id=order.store_id,
+        status=_schema_status(order.status),
+        total_amount=order.total_amount,
+        delivery_address=order.delivery_address,
+        delivery_lat=order.delivery_lat,
+        delivery_lng=order.delivery_lng,
+        delivery_partner_id=order.delivery.delivery_partner_id if order.delivery else None,
+        notes=order.notes,
+        created_at=order.created_at.isoformat(),
+        updated_at=order.updated_at.isoformat(),
+        items=[
+            OrderItemResponse(
+                id=item.id,
+                order_id=item.order_id,
+                product_id=item.product_id,
+                product_name=item.product_name,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                subtotal=item.subtotal,
+            )
+            for item in order.items
+        ],
+    )
+
+
+def _get_authorized_order(db: Session, order_id: int, current_user: UserContext) -> Order:
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    if current_user.role == "customer":
+        customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
+        allowed = customer and order.customer_id == customer.id
+    elif current_user.role == "retailer":
+        retailer = db.query(Retailer).filter(Retailer.user_id == current_user.user_id).first()
+        allowed = retailer and retailer.store and order.store_id == retailer.store.id
+    elif current_user.role == "delivery_partner":
+        partner = db.query(DeliveryPartner).filter(DeliveryPartner.user_id == current_user.user_id).first()
+        allowed = bool(order.delivery and partner and order.delivery.delivery_partner_id == partner.id)
+    else:
+        allowed = False
+
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this order")
+    return order
+
+
 @router.post(
     "",
     response_model=OrderResponse,
@@ -26,6 +94,7 @@ router = APIRouter(prefix="/orders", tags=["Order Management & Lifecycle"])
 def create_order(
     payload: OrderCreate,
     current_user: UserContext = Depends(require_role(["customer"])),
+    db: Session = Depends(get_db),
 ):
     """
     Create a new customer order.
@@ -37,38 +106,67 @@ def create_order(
       e) Create order record with status 'RECEIVED'
       f) Trigger non-blocking order status notification
     """
-    # Sample calculated response structure
-    order_items = [
-        OrderItemResponse(
-            id=1,
-            order_id=1,
-            product_id=item.product_id,
-            product_name="Product Item",
-            quantity=item.quantity,
-            unit_price=49.99,
-            subtotal=round(49.99 * item.quantity, 2),
-        )
-        for item in payload.items
-    ]
-    total_amount = sum(item.subtotal for item in order_items)
+    customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer profile not found")
 
-    notify_order_status(1, OrderStatus.RECEIVED.value)
+    requested = {item.product_id: item.quantity for item in payload.items}
+    products = db.query(Product).filter(Product.id.in_(requested.keys()), Product.is_active.is_(True)).all()
+    if len(products) != len(requested):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more products are unavailable")
 
-    return OrderResponse(
-        id=1,
-        customer_id=current_user.user_id,
-        store_id=1,
-        status=OrderStatus.RECEIVED,
-        total_amount=total_amount,
+    store_ids = {product.store_id for product in products}
+    if len(store_ids) != 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order items must belong to one store")
+    store_id = store_ids.pop()
+
+    total_amount = 0.0
+    order = Order(
+        customer_id=customer.id,
+        store_id=store_id,
+        status=ModelOrderStatus.RECEIVED,
+        total_amount=0.0,
         delivery_address=payload.delivery_address,
         delivery_lat=payload.delivery_lat,
         delivery_lng=payload.delivery_lng,
-        delivery_partner_id=None,
         notes=payload.notes,
-        created_at="2026-09-21T22:00:00Z",
-        updated_at="2026-09-21T22:00:00Z",
-        items=order_items,
     )
+    db.add(order)
+    db.flush()
+
+    for product in products:
+        quantity = requested[product.id]
+        inventory = (
+            db.query(Inventory)
+            .filter(
+                Inventory.store_id == store_id,
+                Inventory.product_id == product.id,
+                Inventory.is_available.is_(True),
+            )
+            .first()
+        )
+        if not inventory or inventory.quantity < quantity:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Insufficient stock for {product.name}")
+        subtotal = round(product.price * quantity, 2)
+        total_amount += subtotal
+        inventory.quantity -= quantity
+        db.add(
+            OrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                product_name=product.name,
+                quantity=quantity,
+                unit_price=product.price,
+                subtotal=subtotal,
+            )
+        )
+
+    order.total_amount = round(total_amount, 2)
+    db.commit()
+    db.refresh(order)
+
+    notify_order_status(order.id, OrderStatus.RECEIVED.value)
+    return _order_to_response(order)
 
 
 @router.get(
@@ -81,6 +179,7 @@ def get_order_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Get order history filtered for current user role:
@@ -88,32 +187,22 @@ def get_order_history(
     - Retailer: returns store orders
     - Delivery Partner: returns assigned deliveries
     """
-    sample_item = OrderItemResponse(
-        id=1,
-        order_id=1,
-        product_id=1,
-        product_name="Product Item",
-        quantity=2,
-        unit_price=49.99,
-        subtotal=99.98,
-    )
-    return [
-        OrderResponse(
-            id=1,
-            customer_id=current_user.user_id if current_user.role == "customer" else 1,
-            store_id=1,
-            status=status_filter or OrderStatus.RECEIVED,
-            total_amount=99.98,
-            delivery_address="123 Main St",
-            delivery_lat=28.6139,
-            delivery_lng=77.2090,
-            delivery_partner_id=None,
-            notes=None,
-            created_at="2026-09-21T22:00:00Z",
-            updated_at="2026-09-21T22:00:00Z",
-            items=[sample_item],
-        )
-    ]
+    query = db.query(Order)
+    if current_user.role == "customer":
+        customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
+        query = query.filter(Order.customer_id == customer.id) if customer else query.filter(False)
+    elif current_user.role == "retailer":
+        retailer = db.query(Retailer).filter(Retailer.user_id == current_user.user_id).first()
+        query = query.filter(Order.store_id == retailer.store.id) if retailer and retailer.store else query.filter(False)
+    elif current_user.role == "delivery_partner":
+        partner = db.query(DeliveryPartner).filter(DeliveryPartner.user_id == current_user.user_id).first()
+        query = query.join(Order.delivery).filter(Delivery.delivery_partner_id == partner.id) if partner else query.filter(False)
+
+    if status_filter:
+        query = query.filter(Order.status == _model_status(status_filter))
+
+    orders = query.order_by(Order.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return [_order_to_response(order) for order in orders]
 
 
 @router.get(
@@ -124,37 +213,10 @@ def get_order_history(
 def get_order(
     order_id: int,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Get single order by ID with ownership permission checks."""
-    if order_id <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found"
-        )
-
-    sample_item = OrderItemResponse(
-        id=1,
-        order_id=order_id,
-        product_id=1,
-        product_name="Product Item",
-        quantity=2,
-        unit_price=49.99,
-        subtotal=99.98,
-    )
-    return OrderResponse(
-        id=order_id,
-        customer_id=1,
-        store_id=1,
-        status=OrderStatus.RECEIVED,
-        total_amount=99.98,
-        delivery_address="123 Main St",
-        delivery_lat=28.6139,
-        delivery_lng=77.2090,
-        delivery_partner_id=None,
-        notes=None,
-        created_at="2026-09-21T22:00:00Z",
-        updated_at="2026-09-21T22:00:00Z",
-        items=[sample_item],
-    )
+    return _order_to_response(_get_authorized_order(db, order_id, current_user))
 
 
 @router.patch(
@@ -166,6 +228,7 @@ def update_order_status_endpoint(
     order_id: int,
     payload: OrderStatusUpdate,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Single entry point for order status changes.
@@ -173,40 +236,19 @@ def update_order_status_endpoint(
       RECEIVED -> ACCEPTED -> PREPARING -> READY_FOR_PICKUP -> OUT_FOR_DELIVERY -> DELIVERED
       Terminal states: REJECTED, CANCELLED (triggers stock restoration)
     """
-    # Enforce state machine lifecycle transition rules
-    current_status = OrderStatus.RECEIVED  # Example baseline state
+    order = _get_authorized_order(db, order_id, current_user)
+    current_status = _schema_status(order.status)
     validate_status_transition(
         current_status=current_status,
         target_status=payload.status,
         user_role=current_user.role,
     )
 
+    order.status = _model_status(payload.status)
+    db.commit()
+    db.refresh(order)
     notify_order_status(order_id, payload.status.value)
-
-    sample_item = OrderItemResponse(
-        id=1,
-        order_id=order_id,
-        product_id=1,
-        product_name="Product Item",
-        quantity=2,
-        unit_price=49.99,
-        subtotal=99.98,
-    )
-    return OrderResponse(
-        id=order_id,
-        customer_id=1,
-        store_id=1,
-        status=payload.status,
-        total_amount=99.98,
-        delivery_address="123 Main St",
-        delivery_lat=28.6139,
-        delivery_lng=77.2090,
-        delivery_partner_id=None,
-        notes=None,
-        created_at="2026-09-21T22:00:00Z",
-        updated_at="2026-09-21T22:05:00Z",
-        items=[sample_item],
-    )
+    return _order_to_response(order)
 
 
 @router.put(
@@ -218,32 +260,15 @@ def update_order(
     order_id: int,
     payload: OrderUpdate,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Update order notes or metadata."""
-    sample_item = OrderItemResponse(
-        id=1,
-        order_id=order_id,
-        product_id=1,
-        product_name="Product Item",
-        quantity=2,
-        unit_price=49.99,
-        subtotal=99.98,
-    )
-    return OrderResponse(
-        id=order_id,
-        customer_id=1,
-        store_id=1,
-        status=OrderStatus.RECEIVED,
-        total_amount=99.98,
-        delivery_address="123 Main St",
-        delivery_lat=28.6139,
-        delivery_lng=77.2090,
-        delivery_partner_id=None,
-        notes=payload.notes,
-        created_at="2026-09-21T22:00:00Z",
-        updated_at="2026-09-21T22:05:00Z",
-        items=[sample_item],
-    )
+    order = _get_authorized_order(db, order_id, current_user)
+    if payload.notes is not None:
+        order.notes = payload.notes
+    db.commit()
+    db.refresh(order)
+    return _order_to_response(order)
 
 
 @router.get(
@@ -254,18 +279,20 @@ def update_order(
 def get_order_status_tracking(
     order_id: int,
     current_user: UserContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Retrieve lightweight status tracking timeline for live tracking screen."""
+    order = _get_authorized_order(db, order_id, current_user)
     history_logs = [
         OrderStatusHistoryItem(
-            status=OrderStatus.RECEIVED.value,
-            timestamp="2026-09-21T22:00:00Z",
-            note="Order received by platform",
+            status=order.status.value,
+            timestamp=order.updated_at.isoformat(),
+            note="Current order status",
         )
     ]
     return OrderStatusTrackingResponse(
         order_id=order_id,
-        current_status=OrderStatus.RECEIVED,
-        updated_at="2026-09-21T22:00:00Z",
+        current_status=_schema_status(order.status),
+        updated_at=order.updated_at.isoformat(),
         history=history_logs,
     )
