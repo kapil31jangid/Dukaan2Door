@@ -7,10 +7,13 @@ from app.core.deps import get_db
 from app.routers import (
     auth,
     customers,
+    deliveries,
     delivery_partners,
+    matching,
     orders,
     products,
     retailers,
+    websocket,
 )
 
 app = FastAPI(
@@ -37,7 +40,10 @@ app.include_router(customers.router, prefix=api_prefix)
 app.include_router(retailers.router, prefix=api_prefix)
 app.include_router(delivery_partners.router, prefix=api_prefix)
 app.include_router(products.router, prefix=api_prefix)
+app.include_router(matching.router, prefix=api_prefix)
 app.include_router(orders.router, prefix=api_prefix)
+app.include_router(deliveries.router, prefix=api_prefix)
+app.include_router(websocket.router, prefix=api_prefix)
 
 
 @app.get("/health", tags=["Health Check"])

@@ -59,6 +59,8 @@ class DeliveryPartnerProfile(BaseModel):
     phone: Optional[str] = None
     vehicle_info: Optional[str] = None
     is_available: bool = True
+    current_lat: Optional[float] = None
+    current_lng: Optional[float] = None
 
 
 class DeliveryPartnerUpdate(BaseModel):
@@ -66,3 +68,5 @@ class DeliveryPartnerUpdate(BaseModel):
     phone: Optional[str] = None
     vehicle_info: Optional[str] = None
     is_available: Optional[bool] = None
+    current_lat: Optional[float] = None
+    current_lng: Optional[float] = None

@@ -66,6 +66,8 @@ def create_user_with_profile(db: Session, data: Dict[str, Any]) -> User:
                 name=payload["name"],
                 phone=payload.get("phone"),
                 vehicle_info=payload.get("vehicle_info"),
+                current_lat=payload.get("lat"),
+                current_lng=payload.get("lng"),
             )
         )
 

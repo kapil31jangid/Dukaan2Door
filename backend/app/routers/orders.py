@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import UserContext, get_current_user, get_db, require_role
 from app.integrations.notifier import notify_order_status
 from app.models.customer import Customer
-from app.models.delivery import Delivery
+from app.models.delivery import Delivery, DeliveryStatus as ModelDeliveryStatus
 from app.models.delivery_partner import DeliveryPartner
 from app.models.inventory import Inventory
 from app.models.order import Order, OrderItem, OrderStatus as ModelOrderStatus
@@ -22,6 +22,7 @@ from app.schemas.order import (
     OrderUpdate,
 )
 from app.services.order_service import validate_status_transition
+from app.services.store_matching_service import RequestedItem, find_matching_store
 
 router = APIRouter(prefix="/orders", tags=["Order Management & Lifecycle"])
 
@@ -110,60 +111,91 @@ def create_order(
     if not customer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer profile not found")
 
-    requested = {item.product_id: item.quantity for item in payload.items}
-    products = db.query(Product).filter(Product.id.in_(requested.keys()), Product.is_active.is_(True)).all()
-    if len(products) != len(requested):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="One or more products are unavailable")
+    requested: dict[int, int] = {}
+    for item in payload.items:
+        requested[item.product_id] = requested.get(item.product_id, 0) + item.quantity
 
-    store_ids = {product.store_id for product in products}
-    if len(store_ids) != 1:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Order items must belong to one store")
-    store_id = store_ids.pop()
-
-    total_amount = 0.0
-    order = Order(
-        customer_id=customer.id,
-        store_id=store_id,
-        status=ModelOrderStatus.RECEIVED,
-        total_amount=0.0,
-        delivery_address=payload.delivery_address,
-        delivery_lat=payload.delivery_lat,
-        delivery_lng=payload.delivery_lng,
-        notes=payload.notes,
+    match = find_matching_store(
+        db,
+        payload.delivery_lat,
+        payload.delivery_lng,
+        [RequestedItem(product_id=product_id, quantity=quantity) for product_id, quantity in requested.items()],
     )
-    db.add(order)
-    db.flush()
+    if not match.matched or match.store_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=match.reason or "No eligible store found for this order",
+        )
 
-    for product in products:
-        quantity = requested[product.id]
-        inventory = (
-            db.query(Inventory)
+    store_id = match.store_id
+    try:
+        products = (
+            db.query(Product)
             .filter(
-                Inventory.store_id == store_id,
-                Inventory.product_id == product.id,
-                Inventory.is_available.is_(True),
+                Product.id.in_(requested.keys()),
+                Product.store_id == store_id,
+                Product.is_active.is_(True),
             )
-            .first()
+            .all()
         )
-        if not inventory or inventory.quantity < quantity:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Insufficient stock for {product.name}")
-        subtotal = round(product.price * quantity, 2)
-        total_amount += subtotal
-        inventory.quantity -= quantity
-        db.add(
-            OrderItem(
-                order_id=order.id,
-                product_id=product.id,
-                product_name=product.name,
-                quantity=quantity,
-                unit_price=product.price,
-                subtotal=subtotal,
-            )
-        )
+        if len(products) != len(requested):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Matched store cannot fulfill all items")
 
-    order.total_amount = round(total_amount, 2)
-    db.commit()
-    db.refresh(order)
+        inventory_by_product = {
+            inventory.product_id: inventory
+            for inventory in (
+                db.query(Inventory)
+                .filter(
+                    Inventory.store_id == store_id,
+                    Inventory.product_id.in_(requested.keys()),
+                )
+                .with_for_update()
+                .all()
+            )
+        }
+
+        total_amount = 0.0
+        order = Order(
+            customer_id=customer.id,
+            store_id=store_id,
+            status=ModelOrderStatus.RECEIVED,
+            total_amount=0.0,
+            delivery_address=payload.delivery_address,
+            delivery_lat=payload.delivery_lat,
+            delivery_lng=payload.delivery_lng,
+            notes=payload.notes,
+        )
+        db.add(order)
+        db.flush()
+
+        for product in products:
+            quantity = requested[product.id]
+            inventory = inventory_by_product.get(product.id)
+            if not inventory or not inventory.is_available or inventory.quantity < quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Insufficient stock for {product.name}",
+                )
+            subtotal = round(product.price * quantity, 2)
+            total_amount += subtotal
+            inventory.quantity -= quantity
+            db.add(
+                OrderItem(
+                    order_id=order.id,
+                    product_id=product.id,
+                    product_name=product.name,
+                    quantity=quantity,
+                    unit_price=product.price,
+                    subtotal=subtotal,
+                )
+            )
+
+        order.total_amount = round(total_amount, 2)
+        db.commit()
+        db.refresh(order)
+    except HTTPException:
+        db.rollback()
+        raise
 
     notify_order_status(order.id, OrderStatus.RECEIVED.value)
     return _order_to_response(order)
@@ -243,6 +275,21 @@ def update_order_status_endpoint(
         target_status=payload.status,
         user_role=current_user.role,
     )
+
+    if current_user.role == "delivery_partner" and order.delivery:
+        if payload.status == OrderStatus.OUT_FOR_DELIVERY and order.delivery.status not in {
+            ModelDeliveryStatus.PICKED_UP,
+            ModelDeliveryStatus.OUT_FOR_DELIVERY,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Delivery must be picked up before order can move out for delivery",
+            )
+        if payload.status == OrderStatus.DELIVERED and order.delivery.status != ModelDeliveryStatus.DELIVERED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Delivery must be delivered before order can be marked delivered",
+            )
 
     order.status = _model_status(payload.status)
     db.commit()
