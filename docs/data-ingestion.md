@@ -151,4 +151,4 @@ The staged datasets can support product and inventory analysis, but they cannot 
 - BlinkIT file has outlet identifiers and outlet location type tiers, but no coordinates.
 - Instacart has anonymized user/order/product relationships, but no store/customer coordinates.
 
-Backend 2 must not fabricate geographic coordinates from these datasets.
+The backend must not fabricate geographic coordinates from these datasets.

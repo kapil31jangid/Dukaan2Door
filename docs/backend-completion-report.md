@@ -10,11 +10,11 @@ Generated after final backend integration and verification.
 | Authorization | IMPLEMENTED | `app/core/deps.py`, object checks in orders/deliveries routers |
 | Customers | IMPLEMENTED | `app/routers/customers.py`, profile tests |
 | Retailers | IMPLEMENTED | `app/routers/retailers.py`, order/store authorization tests |
-| Delivery partners | IMPLEMENTED | `app/routers/delivery_partners.py`, Backend 2 delivery tests |
+| Delivery partners | IMPLEMENTED | `app/routers/delivery_partners.py`, delivery workflow tests |
 | Products | IMPLEMENTED | `app/routers/products.py`, product API tests |
 | Inventory | IMPLEMENTED | `app/models/inventory.py`, order/matching tests |
 | Orders | IMPLEMENTED | `app/routers/orders.py`, order lifecycle tests |
-| Store matching | IMPLEMENTED | `app/services/store_matching_service.py`, Backend 2 tests |
+| Store matching | IMPLEMENTED | `app/services/store_matching_service.py`, matching and order integration tests |
 | Delivery assignment | IMPLEMENTED | `app/services/delivery_service.py`, delivery tests |
 | Delivery state transitions | IMPLEMENTED | `app/services/delivery_service.py`, delivery status tests |
 | Geographic distance | IMPLEMENTED | `app/services/geo_service.py`, geo tests |
@@ -31,7 +31,7 @@ Generated after final backend integration and verification.
 |---|---|---|
 | Authentication | PASS | `app/routers/auth.py`; `tests/test_api_endpoints.py` |
 | JWT | PASS | `app/core/security.py`; `tests/test_security.py` |
-| Role authorization | PASS | `app/core/deps.py`; `tests/test_api_endpoints.py`; `tests/test_backend2.py` |
+| Role authorization | PASS | `app/core/deps.py`; `tests/test_api_endpoints.py`; `tests/test_backend_integration.py` |
 | Customer APIs | PASS | `app/routers/customers.py`; `tests/test_api_endpoints.py` |
 | Retailer APIs | PASS | `app/routers/retailers.py`; order status tests |
 | Product APIs | PASS | `app/routers/products.py`; product search/create tests |
@@ -47,7 +47,7 @@ Generated after final backend integration and verification.
 | Distance calculation | PASS | `test_geo_distance_same_coordinate_and_known_distance` |
 | OSRM routing | PASS | `test_routing_service_error_handling`; route API test |
 | Delivery location | PASS | `test_delivery_location_updates_partner_current_location` |
-| Tracking history | PASS | tracking history assertions in Backend 2 tests |
+| Tracking history | PASS | tracking history assertions in delivery tests |
 | WebSockets | PASS | `test_websocket_auth_and_delivery_events` |
 | Authorization | PASS | tracking unauthorized and role-guard tests |
 | End-to-end lifecycle | PASS | `test_complete_backend_lifecycle` |

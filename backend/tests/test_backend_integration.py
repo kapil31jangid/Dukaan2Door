@@ -30,7 +30,7 @@ def create_product(client, retailer_headers, name="Rice", stock=10, available=Tr
         "/api/products",
         json={
             "name": name,
-            "description": "Backend 2 test product",
+            "description": "Backend integration test product",
             "category": "Groceries",
             "price": 50,
             "initial_stock": stock,
