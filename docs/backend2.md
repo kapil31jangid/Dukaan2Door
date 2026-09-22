@@ -34,6 +34,8 @@ Routing + tracking + WebSocket updates
 
 `app.services.store_matching_service.find_matching_store` accepts customer coordinates and requested product quantities.
 
+The store matching service is authoritative for selecting the store during order creation. `POST /api/orders` must not bypass matching by trusting product-owned `store_id` values as the store-selection decision.
+
 Eligibility rules:
 
 - store is open
@@ -59,6 +61,12 @@ Selection rule:
 ## Inventory Validation
 
 Order creation calls store matching first, then locks the selected store inventory rows with SQLAlchemy `with_for_update()`, rechecks availability and quantity, decrements inventory, and creates the order/order items in one transaction.
+
+Order location source:
+
+1. explicit `delivery_lat` and `delivery_lng` in the request
+2. saved customer `lat` and `lng`
+3. `400 Bad Request` if no valid coordinates are available
 
 ## APIs
 
@@ -98,6 +106,8 @@ Order status is kept consistent:
 
 It returns:
 
+- pickup coordinates
+- destination coordinates
 - distance in kilometers
 - duration in minutes
 - route geometry when OSRM provides it

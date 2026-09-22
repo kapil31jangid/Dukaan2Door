@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.inventory import Inventory
 from app.models.product import Product
 from app.models.store import Store
-from app.services.geo_service import calculate_distance_km, validate_coordinates
+from app.services.geo_service import calculate_distance_km, has_valid_coordinates, validate_coordinates
 
 
 @dataclass(frozen=True)
@@ -54,8 +54,8 @@ def find_matching_store(
         .join(Product, Product.id == Inventory.product_id)
         .filter(
             Store.is_open.is_(True),
-            Store.lat.isnot(None),
-            Store.lng.isnot(None),
+        Store.lat.isnot(None),
+        Store.lng.isnot(None),
             Product.id.in_(product_ids),
             Product.is_active.is_(True),
             Product.store_id == Store.id,
@@ -77,6 +77,8 @@ def find_matching_store(
         if not all(product_id in inventory_by_product for product_id in product_ids):
             continue
         store = stores[store_id]
+        if not has_valid_coordinates(store.lat, store.lng):
+            continue
         distance = calculate_distance_km(customer_lat, customer_lng, store.lat, store.lng)
         eligible.append((distance, store_id))
 

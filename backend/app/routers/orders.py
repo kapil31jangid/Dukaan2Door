@@ -22,6 +22,7 @@ from app.schemas.order import (
     OrderUpdate,
 )
 from app.services.order_service import validate_status_transition
+from app.services.geo_service import validate_coordinates
 from app.services.store_matching_service import RequestedItem, find_matching_store
 
 router = APIRouter(prefix="/orders", tags=["Order Management & Lifecycle"])
@@ -111,14 +112,21 @@ def create_order(
     if not customer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer profile not found")
 
+    delivery_lat = payload.delivery_lat if payload.delivery_lat is not None else customer.lat
+    delivery_lng = payload.delivery_lng if payload.delivery_lng is not None else customer.lng
+    delivery_address = payload.delivery_address or customer.delivery_address
+    if delivery_address is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delivery address is required")
+    validate_coordinates(delivery_lat, delivery_lng)
+
     requested: dict[int, int] = {}
     for item in payload.items:
         requested[item.product_id] = requested.get(item.product_id, 0) + item.quantity
 
     match = find_matching_store(
         db,
-        payload.delivery_lat,
-        payload.delivery_lng,
+        delivery_lat,
+        delivery_lng,
         [RequestedItem(product_id=product_id, quantity=quantity) for product_id, quantity in requested.items()],
     )
     if not match.matched or match.store_id is None:
@@ -160,9 +168,9 @@ def create_order(
             store_id=store_id,
             status=ModelOrderStatus.RECEIVED,
             total_amount=0.0,
-            delivery_address=payload.delivery_address,
-            delivery_lat=payload.delivery_lat,
-            delivery_lng=payload.delivery_lng,
+            delivery_address=delivery_address,
+            delivery_lat=delivery_lat,
+            delivery_lng=delivery_lng,
             notes=payload.notes,
         )
         db.add(order)

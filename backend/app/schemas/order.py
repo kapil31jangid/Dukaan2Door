@@ -35,9 +35,9 @@ class OrderItemIn(BaseModel):
 
 class OrderCreate(BaseModel):
     items: List[OrderItemIn] = Field(..., min_length=1, description="Order must contain at least one item")
-    delivery_address: str = Field(..., min_length=1)
-    delivery_lat: float
-    delivery_lng: float
+    delivery_address: Optional[str] = Field(None, min_length=1)
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
     notes: Optional[str] = None
 
 

@@ -155,6 +155,10 @@ def get_delivery_route(
     delivery = get_delivery_or_404(db, delivery_id)
     authorize_delivery_access(db, delivery, current_user.user_id, current_user.role)
     return RouteResponse(
+        pickup_lat=delivery.pickup_lat,
+        pickup_lng=delivery.pickup_lng,
+        destination_lat=delivery.destination_lat,
+        destination_lng=delivery.destination_lng,
         **get_route(
             delivery.pickup_lat,
             delivery.pickup_lng,

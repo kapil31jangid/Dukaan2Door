@@ -62,6 +62,10 @@ class DeliveryTrackingResponse(BaseModel):
 
 
 class RouteResponse(BaseModel):
+    pickup_lat: float
+    pickup_lng: float
+    destination_lat: float
+    destination_lng: float
     distance_km: float
     duration_minutes: float
     geometry: Optional[Any] = None

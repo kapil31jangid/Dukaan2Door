@@ -11,7 +11,7 @@ from app.models.delivery_partner import DeliveryPartner
 from app.models.order import Order, OrderStatus
 from app.models.retailer import Retailer
 from app.models.store import Store
-from app.services.geo_service import calculate_distance_km, validate_coordinates
+from app.services.geo_service import calculate_distance_km, has_valid_coordinates, validate_coordinates
 
 
 VALID_DELIVERY_TRANSITIONS = {
@@ -89,6 +89,8 @@ def assign_delivery_partner(db: Session, order_id: int) -> DeliveryAssignmentRes
     )
     candidates: list[tuple[float, int, DeliveryPartner]] = []
     for partner in partners:
+        if not has_valid_coordinates(partner.current_lat, partner.current_lng):
+            continue
         distance = calculate_distance_km(store.lat, store.lng, partner.current_lat, partner.current_lng)
         candidates.append((distance, partner.id, partner))
 

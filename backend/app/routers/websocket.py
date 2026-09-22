@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
+from sqlalchemy.orm import Session
 
+from app.core.deps import get_db
 from app.core.security import decode_access_token
-from app.db.session import SessionLocal
 from app.models.user import User
 from app.services.delivery_service import authorize_delivery_access, get_delivery_or_404
 from app.services.realtime_service import manager
@@ -10,13 +11,17 @@ router = APIRouter(tags=["Delivery WebSockets"])
 
 
 @router.websocket("/ws/deliveries/{delivery_id}")
-async def delivery_websocket(delivery_id: int, websocket: WebSocket, token: str = Query(...)):
+async def delivery_websocket(
+    delivery_id: int,
+    websocket: WebSocket,
+    token: str = Query(...),
+    db: Session = Depends(get_db),
+):
     payload = decode_access_token(token)
     if not payload:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    db = SessionLocal()
     try:
         user_id = int(payload.get("sub", ""))
         role = payload.get("role")
@@ -33,8 +38,6 @@ async def delivery_websocket(delivery_id: int, websocket: WebSocket, token: str 
     except (TypeError, ValueError):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
-    finally:
-        db.close()
 
     await manager.connect(delivery_id, websocket)
     try:
