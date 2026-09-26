@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -124,7 +124,7 @@ def update_delivery_status(db: Session, delivery: Delivery, target_status: Deliv
             detail=f"Invalid delivery status transition from '{delivery.status.value}' to '{target_status.value}'",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     delivery.status = target_status
     if target_status == DeliveryStatus.PICKED_UP:
         delivery.picked_up_at = now

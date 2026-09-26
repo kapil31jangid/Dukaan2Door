@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Store, Truck, Lock, Mail, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Store, Truck, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 
 export const LoginPage: React.FC = () => {
@@ -29,8 +29,10 @@ export const LoginPage: React.FC = () => {
         navigate('/retailer', { replace: true });
       } else if (user.role === 'delivery_partner') {
         navigate('/delivery', { replace: true });
+      } else if (user.role === 'customer') {
+        navigate('/customer/home', { replace: true });
       } else {
-        setError(`Your account has role "${user.role}". Frontend 2 is strictly for Retailers and Delivery Partners.`);
+        setError(`Unknown role "${user.role}".`);
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please check your credentials.');
@@ -120,6 +122,14 @@ export const LoginPage: React.FC = () => {
               Sign In to Dashboard
             </Button>
           </form>
+
+          {/* Register link */}
+          <p className="mt-4 text-center text-xs text-slate-400">
+            New customer?{' '}
+            <Link to="/register" className="text-emerald-400 hover:text-emerald-300 font-semibold transition-colors">
+              Register here
+            </Link>
+          </p>
 
           {/* Quick Demo Logins Section */}
           <div className="mt-8 pt-6 border-t border-slate-800">

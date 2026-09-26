@@ -61,6 +61,7 @@ class OrderResponse(BaseModel):
     delivery_lat: float
     delivery_lng: float
     delivery_partner_id: Optional[int] = None
+    delivery_id: Optional[int] = None
     notes: Optional[str] = None
     created_at: str
     updated_at: str

@@ -31,8 +31,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowe
       return <Navigate to="/retailer" replace />;
     } else if (role === 'delivery_partner') {
       return <Navigate to="/delivery" replace />;
+    } else if (role === 'customer') {
+      return <Navigate to="/customer/home" replace />;
     } else {
-      // Customer or other role trying to access Frontend 2 merchant/delivery views
+      // Unknown role
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-slate-50">
           <div className="max-w-md p-8 bg-white rounded-2xl border border-slate-200 shadow-sm">

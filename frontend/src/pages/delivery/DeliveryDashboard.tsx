@@ -66,10 +66,9 @@ export const DeliveryDashboard: React.FC = () => {
           // The order has items and delivery information
           // Let's query delivery via delivery_id if order.delivery is available or by active delivery
           // We can fetch tracking or route
-          if (active.id) {
-            // Note: delivery ID is typically associated with the order ID in backend
-            // Let's try loading delivery ID matching active order
-            const deliveryData = await deliveryService.getDelivery(active.id);
+          const targetDeliveryId = active.delivery_id || active.id;
+          if (targetDeliveryId) {
+            const deliveryData = await deliveryService.getDelivery(targetDeliveryId);
             setActiveDelivery(deliveryData);
 
             try {

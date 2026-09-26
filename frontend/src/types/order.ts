@@ -28,6 +28,7 @@ export interface Order {
   delivery_lat: number;
   delivery_lng: number;
   delivery_partner_id?: number | null;
+  delivery_id?: number | null;
   notes?: string | null;
   created_at: string;
   updated_at: string;

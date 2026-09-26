@@ -47,6 +47,7 @@ def _order_to_response(order: Order) -> OrderResponse:
         delivery_lat=order.delivery_lat,
         delivery_lng=order.delivery_lng,
         delivery_partner_id=order.delivery.delivery_partner_id if order.delivery else None,
+        delivery_id=order.delivery.id if order.delivery else None,
         notes=order.notes,
         created_at=order.created_at.isoformat(),
         updated_at=order.updated_at.isoformat(),

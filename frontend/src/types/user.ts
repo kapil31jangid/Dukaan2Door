@@ -8,6 +8,14 @@ export interface CustomerProfile {
   lng?: number | null;
 }
 
+export interface CustomerUpdate {
+  name?: string;
+  phone?: string;
+  delivery_address?: string;
+  lat?: number;
+  lng?: number;
+}
+
 export interface RetailerProfile {
   id: number;
   user_id: number;
@@ -58,4 +66,12 @@ export interface DeliveryPartnerUpdate {
   is_available?: boolean;
   current_lat?: number;
   current_lng?: number;
+}
+
+export interface CustomerUpdate {
+  name?: string;
+  phone?: string;
+  delivery_address?: string;
+  lat?: number;
+  lng?: number;
 }

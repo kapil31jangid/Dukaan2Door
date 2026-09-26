@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { Store, Truck, LogOut, User, Menu, X } from 'lucide-react';
+import { Store, Truck, ShoppingBag, LogOut, User, Menu, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 
@@ -28,14 +28,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }
 
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-500/20">
-                {role === 'retailer' ? <Store className="w-5 h-5" /> : <Truck className="w-5 h-5" />}
+                {role === 'retailer' ? <Store className="w-5 h-5" /> : role === 'delivery_partner' ? <Truck className="w-5 h-5" /> : <ShoppingBag className="w-5 h-5" />}
               </div>
               <div>
                 <span className="text-base font-extrabold text-slate-900 tracking-tight block leading-tight">
                   Dukaan<span className="text-emerald-600">2Door</span>
                 </span>
                 <span className="text-[10px] font-semibold text-slate-400 tracking-wider uppercase">
-                  {role === 'retailer' ? 'Merchant Portal' : 'Delivery Partner App'}
+                  {role === 'retailer' ? 'Merchant Portal' : role === 'delivery_partner' ? 'Delivery Partner App' : 'Customer App'}
                 </span>
               </div>
             </div>
@@ -72,3 +72,4 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }
     </header>
   );
 };
+
