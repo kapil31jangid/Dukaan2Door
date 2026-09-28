@@ -39,7 +39,10 @@ def get_store_for_retailer_user(db: Session, user_id: int) -> Optional[Store]:
 
 
 def product_to_response(product: Product):
-    inventory = product.inventory
+    inventory = next(
+        (item for item in product.inventory if item.store_id == product.store_id),
+        None,
+    )
     return {
         "id": product.id,
         "store_id": product.store_id,
@@ -52,4 +55,3 @@ def product_to_response(product: Product):
         "quantity": inventory.quantity if inventory else 0,
         "is_available": inventory.is_available if inventory else False,
     }
-

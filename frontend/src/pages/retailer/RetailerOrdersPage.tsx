@@ -37,6 +37,15 @@ export const RetailerOrdersPage: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
+    const refreshTimer = window.setInterval(async () => {
+      try {
+        const data = await retailerService.getOrders(undefined, 1, 100);
+        setOrders(data);
+      } catch {
+        // Keep the current order list visible if a background refresh is missed.
+      }
+    }, 10000);
+    return () => window.clearInterval(refreshTimer);
   }, []);
 
   const handleUpdateStatus = async (orderId: number, targetStatus: OrderStatus) => {

@@ -57,6 +57,15 @@ export const RetailerDashboard: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const refreshTimer = window.setInterval(async () => {
+      try {
+        const ordersData = await retailerService.getOrders(undefined, 1, 50);
+        setOrders(ordersData);
+      } catch {
+        // Keep the current dashboard visible if a background refresh is missed.
+      }
+    }, 10000);
+    return () => window.clearInterval(refreshTimer);
   }, []);
 
   const handleUpdateStatus = async (orderId: number, targetStatus: OrderStatus) => {

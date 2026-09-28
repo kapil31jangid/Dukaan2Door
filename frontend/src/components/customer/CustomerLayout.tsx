@@ -14,7 +14,8 @@ import {
   ArrowRight,
   ClipboardList,
   Navigation,
-  Loader2
+  Loader2,
+  Tag
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
@@ -22,19 +23,6 @@ import { customerService } from '../../services/customerService';
 import { CustomerProfile } from '../../types/user';
 import { LocationModal } from './LocationModal';
 import { getBrowserCoordinates, reverseGeocode } from '../../services/geoService';
-
-const TOP_CATEGORIES = [
-  { id: 'all', name: 'All', icon: '🛍️' },
-  { id: 'Fruits & Vegetables', name: 'Fruits & Vegetables', icon: '🥦' },
-  { id: 'Dairy & Bakery', name: 'Dairy, Bread & Eggs', icon: '🥛' },
-  { id: 'Groceries', name: 'Atta, Rice & Dals', icon: '🌾' },
-  { id: 'Snacks & Packaged Foods', name: 'Snacks & Munchies', icon: '🍿' },
-  { id: 'Beverages', name: 'Tea, Coffee & Drinks', icon: '🧃' },
-  { id: 'Personal Care', name: 'Personal Care', icon: '🧴' },
-  { id: 'Household Cleaning', name: 'Cleaning & Home', icon: '🧹' },
-  { id: 'Baby Care', name: 'Baby Care', icon: '👶' },
-  { id: 'Pooja & Daily Essentials', name: 'Pooja Needs', icon: '🪔' },
-];
 
 export const CustomerLayout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -47,6 +35,7 @@ export const CustomerLayout: React.FC = () => {
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
 
   const rotatingPlaceholders = [
     'Search for "milk, curd & butter"',
@@ -56,27 +45,18 @@ export const CustomerLayout: React.FC = () => {
     'Search for "tata tea & nescafe coffee"',
   ];
 
-  // Fetch initial profile & attempt automatic browser / IP location detection
+  // Load the saved delivery location. Location changes must be explicit so a browser
+  // GPS fix cannot silently overwrite a manually selected address.
   useEffect(() => {
-    customerService.getProfile().then(async (prof) => {
-      setProfile(prof);
-      const hasAutoDetected = localStorage.getItem('d2d_auto_detected_v1');
-      if (!hasAutoDetected || !prof.delivery_address) {
-        try {
-          const coords = await getBrowserCoordinates();
-          const addr = await reverseGeocode(coords.lat, coords.lng);
-          const updated = await customerService.updateProfile({
-            delivery_address: addr,
-            lat: coords.lat,
-            lng: coords.lng,
-          });
-          setProfile(updated);
-          localStorage.setItem('d2d_auto_detected_v1', 'true');
-        } catch {
-          // Silent fallback
-        }
-      }
-    }).catch(() => {});
+    customerService.getProfile().then(setProfile).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    customerService.listProducts({ page_size: 100 }).then((response) => {
+      setCategories(Array.from(new Set(response.products.map((product) => product.category).filter((category): category is string => Boolean(category)))));
+    }).catch(() => {
+      // Home and catalog pages still show their own loading/error states.
+    });
   }, []);
 
   const handleQuickFetchLocation = async (e: React.MouseEvent) => {
@@ -121,10 +101,12 @@ export const CustomerLayout: React.FC = () => {
         isOpen={isLocationModalOpen}
         onClose={() => setIsLocationModalOpen(false)}
         currentAddress={currentAddress}
+        currentLat={profile?.lat}
+        currentLng={profile?.lng}
         onLocationUpdated={(newProfile) => setProfile(newProfile)}
       />
 
-      {/* Zepto Top Header */}
+      {/* Customer storefront header */}
       <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-18 gap-3 sm:gap-6">
@@ -153,7 +135,7 @@ export const CustomerLayout: React.FC = () => {
                 >
                   <div className="flex items-center gap-1 text-[11px] font-black text-slate-900 uppercase tracking-wider">
                     <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    <span>Delivery in 10 mins</span>
+                    <span>Local delivery</span>
                   </div>
                   <div className="flex items-center gap-1 text-xs font-semibold text-slate-500 group-hover:text-purple-700 transition-colors">
                     <span className="max-w-36 truncate">{currentAddress}</span>
@@ -176,7 +158,7 @@ export const CustomerLayout: React.FC = () => {
               </div>
             </div>
 
-            {/* Zepto Center Search Bar */}
+            {/* Global catalog search */}
             <form onSubmit={handleSearchSubmit} className="flex-1 max-w-2xl">
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-purple-600 transition-colors">
@@ -275,9 +257,9 @@ export const CustomerLayout: React.FC = () => {
             <span>GPS</span>
           </button>
 
-          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
-            <Zap className="w-2.5 h-2.5 fill-emerald-700" />
-            <span>10 MINS</span>
+              <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">
+            <Tag className="w-2.5 h-2.5" />
+            <span>LOCAL STORE</span>
           </div>
         </div>
 
@@ -285,7 +267,7 @@ export const CustomerLayout: React.FC = () => {
         <div className="border-t border-slate-100 bg-white/95">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-2 overflow-x-auto py-2.5 no-scrollbar">
-              {TOP_CATEGORIES.map((cat) => {
+              {[{ id: 'all', name: 'All products' }, ...categories.map((category) => ({ id: category, name: category }))].map((cat) => {
                 const isActive =
                   (cat.id === 'all' && location.pathname === '/customer/home') ||
                   location.search.includes(`category=${encodeURIComponent(cat.id)}`);
@@ -306,7 +288,7 @@ export const CustomerLayout: React.FC = () => {
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    <span>{cat.icon}</span>
+                    <Tag className="h-3.5 w-3.5" aria-hidden="true" />
                     <span>{cat.name}</span>
                   </button>
                 );
@@ -321,7 +303,7 @@ export const CustomerLayout: React.FC = () => {
         <Outlet />
       </main>
 
-      {/* Zepto Floating Bottom Cart Pill (when items > 0) */}
+      {/* Floating cart action when items are present */}
       {totalItems > 0 && location.pathname !== '/customer/cart' && location.pathname !== '/customer/checkout' && (
         <div className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-8 sm:w-96 z-40 animate-bounce-short">
           <button
@@ -333,9 +315,9 @@ export const CustomerLayout: React.FC = () => {
                 <ShoppingCart className="w-5 h-5" />
               </div>
               <div className="text-left">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-                  <Zap className="w-3 h-3 fill-emerald-400" />
-                  <span>10 MIN DELIVERY</span>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                  <Tag className="w-3 h-3" />
+                  <span>LOCAL STORE</span>
                 </div>
                 <p className="text-sm font-black text-white">
                   {totalItems} {totalItems === 1 ? 'item' : 'items'} • ₹{Math.round(totalPrice)}

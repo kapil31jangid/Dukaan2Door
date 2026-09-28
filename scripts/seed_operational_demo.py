@@ -49,6 +49,14 @@ CUSTOMERS = [
         "lat": 23.0272,
         "lng": 72.5604,
     },
+    {
+        "email": "rahul@example.com",
+        "name": "Rahul Sharma",
+        "phone": "9000000003",
+        "delivery_address": "Satellite Road, Ramdev Nagar, Ahmedabad 380015",
+        "lat": 23.0276,
+        "lng": 72.5076,
+    },
 ]
 
 STORES = [
@@ -172,6 +180,7 @@ def get_or_create_user(db, email: str, role: UserRole) -> User:
     if user:
         user.role = role
         user.is_active = True
+        user.hashed_password = get_password_hash(DEMO_PASSWORD)
         return user
 
     user = User(email=email, hashed_password=get_password_hash(DEMO_PASSWORD), role=role, is_active=True)

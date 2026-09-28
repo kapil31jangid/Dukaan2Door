@@ -1,14 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
-import { Navigation, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Navigation, RefreshCw, CheckCircle2, AlertCircle, Play, Square } from 'lucide-react';
 import { deliveryService } from '../../services/deliveryService';
+import { RouteGeometry } from '../../types/delivery';
 
 interface PartnerLocationTrackerProps {
   deliveryId: number;
   onLocationUpdated?: (lat: number, lng: number, accuracyM?: number) => void;
   defaultLat?: number;
   defaultLng?: number;
+  pickupLat?: number;
+  pickupLng?: number;
+  destinationLat?: number;
+  destinationLng?: number;
+  routeGeometry?: RouteGeometry | null;
 }
 
 export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
@@ -16,6 +22,11 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
   onLocationUpdated,
   defaultLat = 23.0232,
   defaultLng = 72.5722,
+  pickupLat,
+  pickupLng,
+  destinationLat,
+  destinationLng,
+  routeGeometry,
 }) => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -24,16 +35,21 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
   const [manualLng, setManualLng] = useState<number>(defaultLng);
   const [isLive, setIsLive] = useState(false);
   const [accuracyM, setAccuracyM] = useState<number | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
   const watchIdRef = useRef<number | null>(null);
+  const simulationTimerRef = useRef<number | null>(null);
+  const simulationIndexRef = useRef(0);
+  const SIMULATION_INTERVAL_MS = 2500;
+  const SIMULATION_STEPS = 60; // 60 x 2.5 seconds = 2.5 minutes
 
-  const sendLocation = async (lat: number, lng: number, accuracy?: number) => {
+  const sendLocation = async (lat: number, lng: number, accuracy?: number, source = 'GPS') => {
     setIsUpdating(true);
     setStatusMessage(null);
     setIsError(false);
     try {
       await deliveryService.updateLocation(deliveryId, lat, lng, accuracy);
       setAccuracyM(accuracy ?? null);
-      setStatusMessage(`Live GPS sent${accuracy ? ` ±${Math.round(accuracy)}m` : ''}`);
+      setStatusMessage(`${source} position sent${accuracy ? ` ±${Math.round(accuracy)}m` : ''}`);
       if (onLocationUpdated) {
         onLocationUpdated(lat, lng, accuracy);
       }
@@ -43,6 +59,78 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const getSimulationPath = (): Array<[number, number]> => {
+    const routePoints = routeGeometry?.coordinates
+      ?.filter((point) => point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      .map(([lng, lat]) => [lat, lng] as [number, number]);
+    const sourcePoints = routePoints && routePoints.length >= 2 ? routePoints : [];
+    if (sourcePoints.length >= 2) {
+      // OSRM may return only a few geometry points. Resample the polyline so
+      // the demo always takes the same visible 2.5 minutes.
+      return Array.from({ length: SIMULATION_STEPS + 1 }, (_, index) => {
+        const position = (index / SIMULATION_STEPS) * (sourcePoints.length - 1);
+        const lower = Math.floor(position);
+        const upper = Math.min(Math.ceil(position), sourcePoints.length - 1);
+        const fraction = position - lower;
+        return [
+          sourcePoints[lower][0] + (sourcePoints[upper][0] - sourcePoints[lower][0]) * fraction,
+          sourcePoints[lower][1] + (sourcePoints[upper][1] - sourcePoints[lower][1]) * fraction,
+        ] as [number, number];
+      });
+    }
+    if (![pickupLat, pickupLng, destinationLat, destinationLng].every((value) => Number.isFinite(value))) {
+      return [];
+    }
+    const points: Array<[number, number]> = [];
+    for (let step = 0; step <= SIMULATION_STEPS; step += 1) {
+      const progress = step / SIMULATION_STEPS;
+      points.push([
+        pickupLat! + (destinationLat! - pickupLat!) * progress,
+        pickupLng! + (destinationLng! - pickupLng!) * progress,
+      ]);
+    }
+    return points;
+  };
+
+  const stopSimulation = () => {
+    if (simulationTimerRef.current !== null) {
+      window.clearInterval(simulationTimerRef.current);
+      simulationTimerRef.current = null;
+    }
+    setIsSimulating(false);
+  };
+
+  const handleSimulation = () => {
+    if (isSimulating) {
+      stopSimulation();
+      setStatusMessage('Demo drive stopped');
+      return;
+    }
+    const path = getSimulationPath();
+    if (path.length < 2) {
+      setIsError(true);
+      setStatusMessage('Route coordinates are not available for simulation');
+      return;
+    }
+    simulationIndexRef.current = 0;
+    setIsSimulating(true);
+    setStatusMessage('Demo drive started');
+    const sendNextPoint = () => {
+      const point = path[simulationIndexRef.current];
+      if (!point) {
+        stopSimulation();
+        setStatusMessage('Demo drive completed at the customer');
+        return;
+      }
+      setManualLat(point[0]);
+      setManualLng(point[1]);
+      void sendLocation(point[0], point[1], undefined, 'Demo drive');
+      simulationIndexRef.current += 1;
+    };
+    sendNextPoint();
+    simulationTimerRef.current = window.setInterval(sendNextPoint, SIMULATION_INTERVAL_MS);
   };
 
   const handleBrowserGPS = () => {
@@ -77,12 +165,13 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
         setIsError(true);
         setStatusMessage(`GPS error: ${error.message}. You can use manual coordinates below.`);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
   };
 
   useEffect(() => () => {
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    if (simulationTimerRef.current !== null) window.clearInterval(simulationTimerRef.current);
   }, []);
 
   return (
@@ -98,7 +187,7 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
           Transmit your current location to notify the customer and merchant in real-time.
         </p>
 
-        <div className="flex gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Button
             variant="primary"
             size="sm"
@@ -119,7 +208,20 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
           >
             Transmit
           </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleSimulation}
+            leftIcon={isSimulating ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          >
+            {isSimulating ? 'Stop Demo Drive' : 'Simulate Drive'}
+          </Button>
         </div>
+
+        <p className="text-[11px] text-slate-500">
+          Demo Drive replays the route and writes simulated tracking points. Use Start Live GPS for real device coordinates.
+        </p>
 
         {accuracyM !== null && (
           <p className="text-xs text-slate-600" aria-live="polite">

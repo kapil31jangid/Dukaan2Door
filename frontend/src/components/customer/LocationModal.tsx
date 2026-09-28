@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   MapPin,
   Navigation,
@@ -27,6 +27,8 @@ interface LocationModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentAddress?: string;
+  currentLat?: number | null;
+  currentLng?: number | null;
   onLocationUpdated: (profile: CustomerProfile) => void;
 }
 
@@ -34,6 +36,8 @@ export const LocationModal: React.FC<LocationModalProps> = ({
   isOpen,
   onClose,
   currentAddress,
+  currentLat,
+  currentLng,
   onLocationUpdated,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,10 +45,17 @@ export const LocationModal: React.FC<LocationModalProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [isDetectingGps, setIsDetectingGps] = useState(false);
   const [showInteractiveMap, setShowInteractiveMap] = useState(false);
-  const [mapLat, setMapLat] = useState(23.0365);
-  const [mapLng, setMapLng] = useState(72.5611);
+  const [mapLat, setMapLat] = useState(currentLat ?? 23.0365);
+  const [mapLng, setMapLng] = useState(currentLng ?? 72.5611);
   const [mapAddress, setMapAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || currentLat == null || currentLng == null) return;
+    if (!Number.isFinite(currentLat) || !Number.isFinite(currentLng)) return;
+    setMapLat(currentLat);
+    setMapLng(currentLng);
+  }, [isOpen, currentLat, currentLng]);
 
   if (!isOpen) return null;
 
@@ -153,7 +164,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-black text-slate-900 tracking-tight">Select Delivery Location</h2>
-            <p className="text-xs text-slate-500 font-medium">Find nearby open Kirana stores delivering in 10 mins</p>
+            <p className="text-xs text-slate-500 font-medium">Set the location used for local store availability and delivery.</p>
           </div>
           <button
             onClick={onClose}
@@ -173,7 +184,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
             </div>
           )}
 
-          {/* 1-Click Detect GPS Location Button (Zepto Style) */}
+          {/* One-tap GPS location control */}
           <button
             onClick={handleDetectGps}
             disabled={isDetectingGps}
@@ -192,7 +203,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                   {isDetectingGps ? 'Detecting Location…' : 'Use Current Location'}
                 </p>
                 <p className="text-xs text-purple-200 font-medium">
-                  {isDetectingGps ? 'Resolving live GPS & IP coordinates…' : '1-click instant location detection'}
+                  {isDetectingGps ? 'Waiting for a precise device GPS fix…' : 'Use your device GPS location'}
                 </p>
               </div>
             </div>

@@ -83,7 +83,7 @@ cd frontend
 npm run build
 ```
 
-### Automated Integration Verification:
+### Automated Backend Integration Verification:
 ```bash
-python scripts/verify_frontend2_integration.py
+python scripts/run_story.py
 ```

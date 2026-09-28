@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
+from passlib.exc import UnknownHashError
 from app.models.customer import Customer
 from app.models.delivery_partner import DeliveryPartner
 from app.models.retailer import Retailer
@@ -78,6 +79,13 @@ def create_user_with_profile(db: Session, data: Dict[str, Any]) -> User:
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     user = get_user_by_email(db, email)
-    if not user or not verify_password(password, user.hashed_password):
+    if not user:
+        return None
+    try:
+        if not verify_password(password, user.hashed_password):
+            return None
+    except UnknownHashError:
+        # Legacy/test rows with an invalid hash must fail as normal auth errors,
+        # never crash the login endpoint with a 500 response.
         return None
     return user

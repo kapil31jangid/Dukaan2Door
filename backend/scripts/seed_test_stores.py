@@ -51,6 +51,26 @@ AHMEDABAD_STORES = [
         "operating_hours": "08:00 AM - 10:00 PM",
     },
     {
+        "email": "satellite.retailer.rahul@example.com",
+        "name": "Rahul Satellite Retailer",
+        "phone": "+91 98250 11006",
+        "store_name": "Rahul Satellite Kirana",
+        "address": "Satellite Road, Ramdev Nagar, Ahmedabad 380015",
+        "lat": 23.0276,
+        "lng": 72.5076,
+        "operating_hours": "08:00 AM - 10:00 PM",
+    },
+    {
+        "email": "satellite.retailer.neha@example.com",
+        "name": "Neha Satellite Retailer",
+        "phone": "+91 98250 11007",
+        "store_name": "Neha Satellite Daily Needs",
+        "address": "Jodhpur Cross Road, Satellite, Ahmedabad 380015",
+        "lat": 23.0285,
+        "lng": 72.5090,
+        "operating_hours": "08:00 AM - 10:00 PM",
+    },
+    {
         "email": "bodakdev.retailer@example.com",
         "name": "Bodakdev General Store",
         "phone": "+91 98250 11005",
@@ -113,6 +133,10 @@ def run_seed():
                 )
                 db.add(user)
                 db.flush()
+            else:
+                user.hashed_password = get_password_hash("DemoPassword123!")
+                user.role = UserRole.RETAILER
+                user.is_active = True
 
             retailer = db.query(Retailer).filter(Retailer.user_id == user.id).first()
             if not retailer:
@@ -154,7 +178,7 @@ def run_seed():
             INSERT INTO inventory (store_id, product_id, quantity, is_available, created_at, updated_at)
             SELECT s.id, p.id, 100, true, NOW(), NOW()
             FROM stores s
-            CROSS JOIN products p
+            JOIN products p ON p.store_id = s.id
             WHERE s.is_open = true AND p.is_active = true
             ON CONFLICT (store_id, product_id)
             DO UPDATE SET quantity = GREATEST(inventory.quantity, 100), is_available = true;
@@ -169,6 +193,9 @@ def run_seed():
             {"email": "demo.rider3@example.com", "name": "Rider Suresh (Vastrapur)", "phone": "+91 98250 20003", "vehicle": "TVS Jupiter (GJ-01-EF-1003)", "lat": 23.0350, "lng": 72.5293},
             {"email": "demo.rider4@example.com", "name": "Rider Jayesh (Satellite)", "phone": "+91 98250 20004", "vehicle": "Bajaj Pulsar (GJ-01-GH-1004)", "lat": 23.0276, "lng": 72.5076},
             {"email": "demo.rider5@example.com", "name": "Rider Vikram (Bodakdev)", "phone": "+91 98250 20005", "vehicle": "Ather 450X (GJ-01-JK-1005)", "lat": 23.0450, "lng": 72.5180},
+            {"email": "satellite.rider.rahul@example.com", "name": "Rider Rahul (Satellite)", "phone": "+91 98250 20006", "vehicle": "Hero Splendor (GJ-01-KL-1006)", "lat": 23.0276, "lng": 72.5076},
+            # Approximately 3 km east of the Satellite store for routing simulation.
+            {"email": "satellite.rider.arjun.3km@example.com", "name": "Rider Arjun (3 km from Satellite)", "phone": "+91 98250 20007", "vehicle": "TVS Jupiter (GJ-01-MN-1007)", "lat": 23.0276, "lng": 72.5368},
         ]
         for rdata in RIDERS:
             ruser = db.query(User).filter(User.email == rdata["email"]).first()
@@ -181,6 +208,10 @@ def run_seed():
                 )
                 db.add(ruser)
                 db.flush()
+            else:
+                ruser.hashed_password = get_password_hash("DemoPassword123!")
+                ruser.role = UserRole.DELIVERY_PARTNER
+                ruser.is_active = True
             
             rpartner = db.query(DeliveryPartner).filter(DeliveryPartner.user_id == ruser.id).first()
             if not rpartner:

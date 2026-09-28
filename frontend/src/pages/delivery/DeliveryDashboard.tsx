@@ -299,14 +299,14 @@ export const DeliveryDashboard: React.FC = () => {
             </CardHeader>
             <CardContent className="p-0">
               <DeliveryMap
-                pickupLat={activeDelivery.pickup_lat || 23.0365}
-                pickupLng={activeDelivery.pickup_lng || 72.5611}
+                pickupLat={activeDelivery.pickup_lat}
+                pickupLng={activeDelivery.pickup_lng}
                 pickupLabel={activeDelivery.pickup_address || 'Kirana Store'}
-                destinationLat={activeDelivery.destination_lat || 23.0350}
-                destinationLng={activeDelivery.destination_lng || 72.5293}
+                destinationLat={activeDelivery.destination_lat}
+                destinationLng={activeDelivery.destination_lng}
                 destinationLabel={activeDelivery.destination_address || 'Customer House'}
-                currentLat={currentCoords?.lat || profile?.current_lat || activeDelivery.pickup_lat}
-                currentLng={currentCoords?.lng || profile?.current_lng || activeDelivery.pickup_lng}
+                currentLat={currentCoords?.lat ?? profile?.current_lat}
+                currentLng={currentCoords?.lng ?? profile?.current_lng}
                 routeGeometry={routeInfo?.geometry}
                 height="400px"
               />
@@ -345,19 +345,35 @@ export const DeliveryDashboard: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => handleUpdateDeliveryStatus('OUT_FOR_DELIVERY')}
+                    onClick={() => handleUpdateDeliveryStatus('PICKED_UP')}
                     disabled={isUpdatingStatus || activeDelivery.status !== 'ACCEPTED'}
                     className={`w-full flex items-center justify-between p-3.5 rounded-2xl border text-left transition-all ${
-                      activeDelivery.status === 'PICKED_UP'
+                      activeDelivery.status === 'ACCEPTED'
                         ? 'bg-purple-50 border-purple-300 text-purple-900 font-bold'
                         : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <span className="w-6 h-6 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center">2</span>
+                      <span className="text-xs font-bold">Confirm Order Picked Up</span>
+                    </div>
+                    {['PICKED_UP', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(activeDelivery.status) && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                  </button>
+
+                  <button
+                    onClick={() => handleUpdateDeliveryStatus('OUT_FOR_DELIVERY')}
+                    disabled={isUpdatingStatus || activeDelivery.status !== 'PICKED_UP'}
+                    className={`w-full flex items-center justify-between p-3.5 rounded-2xl border text-left transition-all ${
+                      activeDelivery.status === 'PICKED_UP'
+                        ? 'bg-indigo-50 border-indigo-300 text-indigo-900 font-bold'
+                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">3</span>
                       <span className="text-xs font-bold">Start Route to Customer (Out for Delivery)</span>
                     </div>
-                    {activeDelivery.status === 'OUT_FOR_DELIVERY' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                    {['OUT_FOR_DELIVERY', 'DELIVERED'].includes(activeDelivery.status) && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                   </button>
 
                   <button
@@ -370,7 +386,7 @@ export const DeliveryDashboard: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 rounded-full bg-slate-950 text-white text-xs font-bold flex items-center justify-center">3</span>
+                      <span className="w-6 h-6 rounded-full bg-slate-950 text-white text-xs font-bold flex items-center justify-center">4</span>
                       <span className="text-xs font-black">
                         {activeDelivery.status === 'DELIVERED' ? 'Delivery Completed 🎉' : 'Mark Delivered to Customer'}
                       </span>
@@ -405,8 +421,13 @@ export const DeliveryDashboard: React.FC = () => {
               <PartnerLocationTracker
                 deliveryId={activeDelivery.id}
                 onLocationUpdated={handleLocationUpdated}
-                defaultLat={profile?.current_lat || activeDelivery.pickup_lat}
-                defaultLng={profile?.current_lng || activeDelivery.pickup_lng}
+                defaultLat={profile?.current_lat ?? activeDelivery.pickup_lat}
+                defaultLng={profile?.current_lng ?? activeDelivery.pickup_lng}
+                pickupLat={activeDelivery.pickup_lat}
+                pickupLng={activeDelivery.pickup_lng}
+                destinationLat={activeDelivery.destination_lat}
+                destinationLng={activeDelivery.destination_lng}
+                routeGeometry={routeInfo?.geometry}
               />
 
               {wsEvents.length > 0 && (

@@ -163,6 +163,8 @@ python scripts/run_story.py
 
 The story creates isolated demo accounts, places an order, verifies automatic store matching, walks the retailer and delivery-partner lifecycle, sends an accuracy-aware GPS update, and verifies the customer, retailer, and partner order views. See [End-to-End Demo Story](docs/e2e-demo-story.md) for the three-screen manual walkthrough.
 
+For local test-only accounts and the complete manual flow, see [Testing Users and Flow](docs/testing-users-and-flow.md). Production/Neon users must not be deleted for testing.
+
 ## Deployment
 
 The backend is compatible with Render using:

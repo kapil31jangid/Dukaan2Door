@@ -8,25 +8,13 @@ import { EmptyState } from '../../components/customer/EmptyState';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
 
-const ALL_CATEGORIES = [
-  'Fruits & Vegetables',
-  'Dairy & Bakery',
-  'Groceries',
-  'Snacks & Packaged Foods',
-  'Beverages',
-  'Personal Care',
-  'Household Cleaning',
-  'Baby Care',
-  'Pooja & Daily Essentials',
-  'Other Kirana Essentials',
-];
-
 export const ProductListingPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryParam = searchParams.get('category');
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(categoryParam);
   const [page, setPage] = useState(1);
@@ -34,6 +22,14 @@ export const ProductListingPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const PAGE_SIZE = 24;
+
+  useEffect(() => {
+    customerService.listProducts({ page_size: 100 }).then((data) => {
+      setCategories(Array.from(new Set(data.products.map((product) => product.category).filter((category): category is string => Boolean(category)))));
+    }).catch(() => {
+      // The catalog request below still provides the primary page state.
+    });
+  }, []);
 
   useEffect(() => {
     setSelectedCategory(categoryParam);
@@ -107,7 +103,7 @@ export const ProductListingPage: React.FC = () => {
           >
             All Categories
           </button>
-          {ALL_CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => handleCategorySelect(cat)}
@@ -146,7 +142,7 @@ export const ProductListingPage: React.FC = () => {
       {/* Products Grid */}
       {isLoading ? (
         <div className="flex justify-center py-20">
-          <Spinner size="lg" label="Fetching products from nearest kirana store…" />
+          <Spinner size="lg" label="Fetching products from the local store…" />
         </div>
       ) : error ? (
         <Alert variant="error">{error}</Alert>

@@ -271,7 +271,7 @@ export const LoginPage: React.FC = () => {
                 >
                   <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold mb-0.5">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Rahul (Shopper)</span>
+                    <span>Rahul (Satellite Shopper)</span>
                   </div>
                   <p className="text-[10px] text-slate-400 truncate">rahul@example.com</p>
                 </button>
@@ -303,6 +303,30 @@ export const LoginPage: React.FC = () => {
                   </div>
                   <p className="text-[10px] text-slate-400 truncate">demo.retailer.west</p>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount('satellite.retailer.rahul@example.com', 'retailer')}
+                  className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-left transition-all"
+                >
+                  <div className="flex items-center gap-1.5 text-blue-400 text-xs font-bold mb-0.5">
+                    <Store className="w-3.5 h-3.5" />
+                    <span>Rahul Satellite</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate">satellite.retailer.rahul</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount('satellite.retailer.neha@example.com', 'retailer')}
+                  className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-left transition-all"
+                >
+                  <div className="flex items-center gap-1.5 text-blue-400 text-xs font-bold mb-0.5">
+                    <Store className="w-3.5 h-3.5" />
+                    <span>Neha Satellite</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate">satellite.retailer.neha</p>
+                </button>
               </div>
             )}
 
@@ -330,6 +354,30 @@ export const LoginPage: React.FC = () => {
                     <span>Demo Rider 2</span>
                   </div>
                   <p className="text-[10px] text-slate-400 truncate">demo.rider2@example.com</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount('satellite.rider.rahul@example.com', 'delivery_partner')}
+                  className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-left transition-all"
+                >
+                  <div className="flex items-center gap-1.5 text-amber-400 text-xs font-bold mb-0.5">
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>Rahul Satellite Rider</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate">satellite.rider.rahul</p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fillDemoAccount('satellite.rider.arjun.3km@example.com', 'delivery_partner')}
+                  className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-left transition-all"
+                >
+                  <div className="flex items-center gap-1.5 text-amber-400 text-xs font-bold mb-0.5">
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>Arjun • 3 km Away</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate">satellite.rider.arjun.3km</p>
                 </button>
               </div>
             )}

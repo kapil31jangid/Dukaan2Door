@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, Info, ArrowRight, Store, AlertCircle, Navigation, Loader2 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
@@ -12,6 +12,7 @@ import { getBrowserCoordinates, reverseGeocode } from '../../services/geoService
 export const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
   const { items, totalItems, totalPrice, clearCart } = useCart();
+  const isRedirectingToTracking = useRef(false);
   
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [address, setAddress] = useState('');
@@ -25,7 +26,7 @@ export const CheckoutPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (items.length === 0) {
+    if (items.length === 0 && !isRedirectingToTracking.current) {
       navigate('/customer/cart', { replace: true });
       return;
     }
@@ -82,8 +83,8 @@ export const CheckoutPage: React.FC = () => {
         notes: notes.trim() || undefined,
       });
       
+      isRedirectingToTracking.current = true;
       clearCart();
-      // Navigate to tracking timeline
       navigate(`/customer/orders/${order.id}/status`, { replace: true });
     } catch (err: any) {
       if (err.status === 404) {
@@ -183,9 +184,23 @@ export const CheckoutPage: React.FC = () => {
           <div className="flex items-start gap-2.5 p-3 bg-blue-50 rounded-xl border border-blue-100 text-blue-800">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
             <p className="text-xs">
-              We'll automatically find the nearest Dukaan2Door partner store that has your items in stock.
+              We will verify this location and the local store's inventory when you place the order.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Info className="w-5 h-5 text-emerald-600" />
+            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Payment method</h2>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+            <input id="cash-on-delivery" type="radio" checked readOnly className="h-4 w-4 accent-emerald-600" />
+            <label htmlFor="cash-on-delivery" className="text-sm font-bold text-slate-800">Cash on Delivery</label>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Online payments are not enabled in the current backend.</p>
         </CardContent>
       </Card>
 

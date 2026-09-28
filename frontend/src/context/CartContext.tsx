@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Product } from '../types/product';
+import { CUSTOMER_STORE_ID } from '../services/customerService';
 
 export interface CartItem {
   product_id: number;
@@ -28,7 +29,14 @@ const CART_KEY = 'd2d_cart';
 function loadCart(): CartItem[] {
   try {
     const raw = localStorage.getItem(CART_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const items = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(items)) return [];
+
+    // Product IDs are store-scoped for ordering. Discard a cart saved from a
+    // previous catalog/store so checkout cannot submit stale product IDs.
+    return items.filter((item): item is CartItem => (
+      item && Number(item.store_id) === CUSTOMER_STORE_ID && Number(item.product_id) > 0
+    ));
   } catch {
     return [];
   }

@@ -20,8 +20,9 @@ import httpx
 
 
 PASSWORD = "StoryPassword123!"
-CUSTOMER_LOCATION = (23.0258, 72.5873)
-STORE_LOCATION = (23.0260, 72.5875)
+# Satellite test area. These are fictional local-demo coordinates, not real user data.
+CUSTOMER_LOCATION = (23.0276, 72.5076)
+STORE_LOCATION = (23.0278, 72.5078)
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,8 +88,8 @@ def main() -> int:
             client,
             customer_email,
             "customer",
-            "Story Customer",
-            delivery_address="Story Customer Address",
+            "Satellite Test Customer",
+            delivery_address="Satellite Test Address, Ahmedabad",
             lat=CUSTOMER_LOCATION[0],
             lng=CUSTOMER_LOCATION[1],
         )
@@ -96,8 +97,8 @@ def main() -> int:
             client,
             retailer_email,
             "retailer",
-            "Story Store",
-            store_name=f"Story Store {story_id}",
+            "Satellite Test Retailer",
+            store_name=f"Satellite Local Store {story_id}",
             operating_hours="08:00 AM - 10:00 PM",
             lat=STORE_LOCATION[0],
             lng=STORE_LOCATION[1],
@@ -106,8 +107,8 @@ def main() -> int:
             client,
             partner_email,
             "delivery_partner",
-            "Story Delivery Partner",
-            vehicle_info="Demo bicycle",
+            "Satellite Test Delivery Partner",
+            vehicle_info="Test bicycle",
             lat=STORE_LOCATION[0],
             lng=STORE_LOCATION[1],
         )
@@ -138,7 +139,7 @@ def main() -> int:
                 headers=auth(customer_token),
                 json={
                     "items": [{"product_id": product_id, "quantity": 1}],
-                    "delivery_address": "Story Customer Address",
+                    "delivery_address": "Satellite Test Address, Ahmedabad",
                     "delivery_lat": CUSTOMER_LOCATION[0],
                     "delivery_lng": CUSTOMER_LOCATION[1],
                 },

@@ -64,6 +64,7 @@ def create_product(
 def search_products(
     q: str = Query(..., min_length=1, description="Case-insensitive search query"),
     category: Optional[str] = Query(None),
+    store_id: Optional[int] = Query(None, ge=1, description="Limit results to one store catalog"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -80,6 +81,8 @@ def search_products(
     )
     if category:
         query = query.filter(Product.category == category)
+    if store_id is not None:
+        query = query.filter(Product.store_id == store_id)
     total = query.count()
     products = query.offset((page - 1) * page_size).limit(page_size).all()
     return PaginatedProductResponse(
@@ -97,6 +100,7 @@ def search_products(
 )
 def list_products(
     category: Optional[str] = Query(None),
+    store_id: Optional[int] = Query(None, ge=1, description="Limit results to one store catalog"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -105,6 +109,8 @@ def list_products(
     query = db.query(Product).options(joinedload(Product.inventory)).filter(Product.is_active.is_(True))
     if category:
         query = query.filter(Product.category == category)
+    if store_id is not None:
+        query = query.filter(Product.store_id == store_id)
     total = query.count()
     products = query.offset((page - 1) * page_size).limit(page_size).all()
     return PaginatedProductResponse(
@@ -189,7 +195,10 @@ def update_product_availability(
     product = db.query(Product).filter(Product.id == product_id, Product.store_id == store.id).first() if store else None
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
-    inventory = product.inventory
+    inventory = next(
+        (item for item in product.inventory if item.store_id == product.store_id),
+        None,
+    )
     if not inventory:
         inventory = Inventory(store_id=store.id, product_id=product.id, quantity=0)
         db.add(inventory)

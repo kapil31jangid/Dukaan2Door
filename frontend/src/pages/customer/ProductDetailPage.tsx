@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Check, PackageX } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Check, Package, PackageX } from 'lucide-react';
 import { customerService } from '../../services/customerService';
 import { Product } from '../../types/product';
 import { useCart } from '../../context/CartContext';
@@ -79,9 +79,12 @@ export const ProductDetailPage: React.FC = () => {
       </button>
 
       <Card className="overflow-hidden">
-        {/* Placeholder Image area */}
-        <div className="w-full h-48 sm:h-64 bg-emerald-50 flex items-center justify-center border-b border-slate-100">
-          <span className="text-4xl font-black text-emerald-600/20">{product.name.charAt(0).toUpperCase()}</span>
+        <div className="flex h-48 w-full items-center justify-center border-b border-slate-100 bg-slate-50 sm:h-64">
+          {product.image_url ? (
+            <img src={product.image_url} alt={product.name} className="h-full w-full object-contain p-6" />
+          ) : (
+            <Package className="h-16 w-16 text-slate-300" aria-hidden="true" />
+          )}
         </div>
 
         <CardContent className="p-5 sm:p-8">

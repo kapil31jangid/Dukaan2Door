@@ -92,6 +92,10 @@ def find_matching_store(
         .join(Product, Product.id == Inventory.product_id)
         .filter(
             Inventory.store_id.in_(nearby_store_ids),
+            # Never use a product from one store with inventory belonging to
+            # another store. Legacy rows can otherwise make a nearby store
+            # appear eligible and fail during the order's final stock lock.
+            Product.store_id == Inventory.store_id,
             Inventory.is_available.is_(True),
             Inventory.quantity >= 1,
             Product.is_active.is_(True),

@@ -4,6 +4,10 @@ import { Product, PaginatedProductResponse } from '../types/product';
 import { Order, OrderStatus, OrderStatusTracking } from '../types/order';
 import { Delivery, DeliveryTrackingListResponse, RouteResponse } from '../types/delivery';
 
+// The demo customer catalog is intentionally scoped to the same Satellite store
+// shown in the retailer dashboard. Production deployments can override this.
+export const CUSTOMER_STORE_ID = Number(import.meta.env.VITE_CUSTOMER_STORE_ID || 29);
+
 // ─── Customer Profile ─────────────────────────────────────────────────────────
 
 export const customerService = {
@@ -22,19 +26,25 @@ export const customerService = {
 
   async listProducts(params?: {
     category?: string;
+    store_id?: number;
     page?: number;
     page_size?: number;
   }): Promise<PaginatedProductResponse> {
-    return apiRequest<PaginatedProductResponse>('/api/products', { params });
+    return apiRequest<PaginatedProductResponse>('/api/products', {
+      params: { ...params, store_id: params?.store_id ?? CUSTOMER_STORE_ID },
+    });
   },
 
   async searchProducts(params: {
     q: string;
     category?: string;
+    store_id?: number;
     page?: number;
     page_size?: number;
   }): Promise<PaginatedProductResponse> {
-    return apiRequest<PaginatedProductResponse>('/api/products/search', { params });
+    return apiRequest<PaginatedProductResponse>('/api/products/search', {
+      params: { ...params, store_id: params.store_id ?? CUSTOMER_STORE_ID },
+    });
   },
 
   async getProduct(id: number): Promise<Product> {

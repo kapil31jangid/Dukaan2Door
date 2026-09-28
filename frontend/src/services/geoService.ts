@@ -57,7 +57,7 @@ export const PRESET_LOCATIONS: PresetLocation[] = [
 ];
 
 /**
- * Fetch device coordinates via IP geolocation as high-reliability fallback
+ * Fetch approximate city coordinates from the network. This is not used for delivery GPS.
  */
 export async function getIpCoordinates(): Promise<{ lat: number; lng: number; city?: string; region?: string }> {
   // Provider 1: ipwho.is
@@ -102,51 +102,59 @@ export async function getIpCoordinates(): Promise<{ lat: number; lng: number; ci
 }
 
 /**
- * Fetch current device coordinates via HTML5 Geolocation API with automatic IP fallback
+ * Fetch current device coordinates via the HTML5 Geolocation API.
+ * Network/IP coordinates are deliberately not used here because they can be kilometres away.
  */
-export async function getBrowserCoordinates(): Promise<{ lat: number; lng: number }> {
-  return new Promise((resolve) => {
+export async function getBrowserCoordinates(): Promise<{ lat: number; lng: number; accuracyM?: number }> {
+  return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
-      getIpCoordinates().then(coords => resolve({ lat: coords.lat, lng: coords.lng }));
+      reject(new Error('Precise GPS is not supported by this browser. Please select your location on the map.'));
       return;
     }
 
-    let hasResolved = false;
-
-    // Timeout safety fallback to IP geolocation after 4 seconds
-    const timer = setTimeout(() => {
-      if (!hasResolved) {
-        hasResolved = true;
-        getIpCoordinates().then(coords => resolve({ lat: coords.lat, lng: coords.lng }));
-      }
-    }, 4000);
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (!hasResolved) {
-          hasResolved = true;
-          clearTimeout(timer);
-          resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
+    const resolvePosition = (position: GeolocationPosition) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          reject(new Error('The device returned invalid GPS coordinates.'));
+          return;
         }
-      },
-      async (_error) => {
-        if (!hasResolved) {
-          hasResolved = true;
-          clearTimeout(timer);
-          // Seamlessly fallback to IP-based coordinates instead of throwing error
-          const ipCoords = await getIpCoordinates();
-          resolve({ lat: ipCoords.lat, lng: ipCoords.lng });
-        }
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 3500,
-        maximumAge: 300000,
+        resolve({
+          lat: latitude,
+          lng: longitude,
+          accuracyM: Number.isFinite(accuracy) ? accuracy : undefined,
+        });
+    };
+
+    const rejectPosition = (error: GeolocationPositionError) => {
+      // Some desktop browsers have no GPS sensor but can still return a browser-managed
+      // Wi-Fi/network position. Retry that provider without falling back to IP geolocation.
+      if (error.code !== error.PERMISSION_DENIED) {
+        navigator.geolocation.getCurrentPosition(
+          resolvePosition,
+          (fallbackError) => {
+            reject(new Error(
+              fallbackError.code === fallbackError.PERMISSION_DENIED
+                ? 'Location permission was denied. Please allow GPS or pin your delivery location on the map.'
+                : 'A device location was not available. Please enable location services or pin your delivery location on the map.',
+            ));
+          },
+          { enableHighAccuracy: false, timeout: 30000, maximumAge: 0 },
+        );
+        return;
       }
-    );
+
+        reject(new Error(
+          error.code === error.PERMISSION_DENIED
+            ? 'Location permission was denied. Please allow GPS or pin your delivery location on the map.'
+            : 'A precise GPS fix was not available. Please try again outdoors or pin your delivery location on the map.',
+        ));
+    };
+
+    navigator.geolocation.getCurrentPosition(resolvePosition, rejectPosition, {
+      enableHighAccuracy: true,
+      timeout: 20000,
+      maximumAge: 0,
+    });
   });
 }
 
