@@ -19,6 +19,7 @@ interface DeliveryMapProps {
   destinationLabel?: string;
   currentLat?: number | null;
   currentLng?: number | null;
+  currentAccuracyM?: number | null;
   routeGeometry?: RouteGeometry | null;
   className?: string;
   height?: string;
@@ -33,6 +34,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   destinationLabel = 'Customer Destination',
   currentLat,
   currentLng,
+  currentAccuracyM,
   routeGeometry,
   className = '',
   height = '360px',
@@ -41,6 +43,8 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const routeLayerRef = useRef<L.GeoJSON | null>(null);
   const riderMarkerRef = useRef<L.Marker | null>(null);
+  const accuracyCircleRef = useRef<L.Circle | null>(null);
+  const fixedMarkersRef = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -88,16 +92,22 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
       });
     };
 
+    if (!fixedMarkersRef.current) {
+      fixedMarkersRef.current = L.layerGroup().addTo(map);
+    } else {
+      fixedMarkersRef.current.clearLayers();
+    }
+
     // Store Pickup Marker
     const pickupMarker = L.marker([pickupLat, pickupLng], {
       icon: createCustomIcon('#10b981', '🏪 Pickup'),
-    }).addTo(map);
+    }).addTo(fixedMarkersRef.current);
     pickupMarker.bindPopup(`<b>${pickupLabel}</b><br/>Lat: ${pickupLat.toFixed(4)}, Lng: ${pickupLng.toFixed(4)}`);
 
     // Customer Destination Marker
     const destMarker = L.marker([destinationLat, destinationLng], {
       icon: createCustomIcon('#3b82f6', '📍 Destination'),
-    }).addTo(map);
+    }).addTo(fixedMarkersRef.current);
     destMarker.bindPopup(`<b>${destinationLabel}</b><br/>Lat: ${destinationLat.toFixed(4)}, Lng: ${destinationLng.toFixed(4)}`);
 
     const bounds = L.latLngBounds([
@@ -114,6 +124,20 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
         }).addTo(map);
       } else {
         riderMarkerRef.current.setLatLng([currentLat, currentLng]);
+      }
+      if (currentAccuracyM != null && Number.isFinite(currentAccuracyM) && currentAccuracyM >= 0) {
+        if (!accuracyCircleRef.current) {
+          accuracyCircleRef.current = L.circle([currentLat, currentLng], {
+            radius: currentAccuracyM,
+            color: '#f97316',
+            fillColor: '#fb923c',
+            fillOpacity: 0.16,
+            weight: 1,
+          }).addTo(map);
+        } else {
+          accuracyCircleRef.current.setLatLng([currentLat, currentLng]);
+          accuracyCircleRef.current.setRadius(currentAccuracyM);
+        }
       }
       bounds.extend([currentLat, currentLng]);
     }
@@ -145,7 +169,7 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
     return () => {
       // Map instance kept or cleaned on unmount
     };
-  }, [pickupLat, pickupLng, destinationLat, destinationLng, currentLat, currentLng, routeGeometry]);
+  }, [pickupLat, pickupLng, destinationLat, destinationLng, currentLat, currentLng, currentAccuracyM, routeGeometry]);
 
   // Clean up map on unmount
   useEffect(() => {
@@ -154,6 +178,9 @@ export const DeliveryMap: React.FC<DeliveryMapProps> = ({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
+      fixedMarkersRef.current = null;
+      riderMarkerRef.current = null;
+      accuracyCircleRef.current = null;
     };
   }, []);
 

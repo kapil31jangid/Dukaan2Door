@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.core.deps import UserContext, get_db, require_role
 from app.models.product import Product
 from app.models.retailer import Retailer
@@ -104,5 +104,11 @@ def get_retailer_products(
     store = db.query(Store).join(Store.retailer).filter(Retailer.user_id == current_user.user_id).first()
     if not store:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store not found")
-    products = db.query(Product).filter(Product.store_id == store.id).all()
+    products = (
+        db.query(Product)
+        .options(joinedload(Product.inventory))
+        .filter(Product.store_id == store.id)
+        .order_by(Product.id)
+        .all()
+    )
     return [ProductResponse(**product_to_response(product)) for product in products]

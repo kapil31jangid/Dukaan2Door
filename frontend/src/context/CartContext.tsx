@@ -8,6 +8,7 @@ export interface CartItem {
   quantity: number;
   store_id: number;
   category?: string | null;
+  image_url?: string | null;
 }
 
 interface CartContextType {
@@ -61,6 +62,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           quantity: qty,
           store_id: product.store_id,
           category: product.category,
+          image_url: product.image_url,
         },
       ];
     });

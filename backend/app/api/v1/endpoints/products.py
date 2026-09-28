@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.core.deps import UserContext, get_db, require_role
 from app.models.inventory import Inventory
 from app.models.product import Product
@@ -39,6 +39,7 @@ def create_product(
         description=payload.description,
         category=payload.category,
         price=payload.price,
+        image_url=payload.image_url,
     )
     db.add(product)
     db.flush()
@@ -101,7 +102,7 @@ def list_products(
     db: Session = Depends(get_db),
 ):
     """Browse active, in-stock products with pagination and category filter."""
-    query = db.query(Product).filter(Product.is_active.is_(True))
+    query = db.query(Product).options(joinedload(Product.inventory)).filter(Product.is_active.is_(True))
     if category:
         query = query.filter(Product.category == category)
     total = query.count()

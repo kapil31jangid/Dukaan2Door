@@ -41,10 +41,15 @@ export const deliveryService = {
     });
   },
 
-  async updateLocation(deliveryId: number, latitude: number, longitude: number): Promise<DeliveryTrackingPoint> {
+  async updateLocation(
+    deliveryId: number,
+    latitude: number,
+    longitude: number,
+    accuracy_m?: number,
+  ): Promise<DeliveryTrackingPoint> {
     return apiRequest<DeliveryTrackingPoint>(`/api/deliveries/${deliveryId}/location`, {
       method: 'POST',
-      body: JSON.stringify({ latitude, longitude }),
+      body: JSON.stringify({ latitude, longitude, accuracy_m }),
     });
   },
 

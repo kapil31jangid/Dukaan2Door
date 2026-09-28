@@ -80,6 +80,7 @@ export const LiveTrackingPage: React.FC = () => {
                 delivery_id: deliveryId,
                 latitude: evt.data.latitude,
                 longitude: evt.data.longitude,
+                accuracy_m: evt.data.accuracy_m,
                 recorded_at: evt.data.recorded_at,
                 status: evt.data.status,
               });
@@ -166,6 +167,7 @@ export const LiveTrackingPage: React.FC = () => {
           destinationLng={delivery.destination_lng}
           currentLat={currentLocation?.latitude}
           currentLng={currentLocation?.longitude}
+          currentAccuracyM={currentLocation?.accuracy_m}
           routeGeometry={routeGeometry}
         />
       </div>

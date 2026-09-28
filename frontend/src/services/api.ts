@@ -95,3 +95,35 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
 
   return data as T;
 }
+
+/** Upload a file using multipart/form-data. The browser sets Content-Type + boundary automatically. */
+export async function uploadFile<T>(endpoint: string, formData: FormData): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+  } catch (err: any) {
+    throw new ApiError(err.message || 'Network connection failed', 0);
+  }
+
+  if (response.status === 401) {
+    removeToken();
+    if (!window.location.pathname.startsWith('/login')) {
+      window.location.href = '/login?expired=true';
+    }
+    throw new ApiError('Session expired. Please log in again.', 401);
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new ApiError(data?.detail || `Upload failed (${response.status})`, response.status, data);
+  }
+  return data as T;
+}

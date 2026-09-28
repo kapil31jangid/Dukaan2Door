@@ -8,6 +8,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
 import { OrderCard } from '../../components/retailer/OrderCard';
 import { OrderDetailModal } from '../../components/retailer/OrderDetailModal';
+import { AssignDeliveryPartnerModal } from '../../components/retailer/AssignDeliveryPartnerModal';
 import { Search, Filter, RefreshCw, ShoppingBag } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 
@@ -19,6 +20,7 @@ export const RetailerOrdersPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [dispatchOrder, setDispatchOrder] = useState<Order | null>(null);
 
   const fetchOrders = async () => {
     setIsLoading(true);
@@ -51,17 +53,15 @@ export const RetailerOrdersPage: React.FC = () => {
   };
 
   const handleAssignDelivery = async (orderId: number) => {
-    try {
-      const res = await retailerService.assignDelivery(orderId);
-      if (res.assigned) {
-        setNotice(`Delivery partner assigned! Distance: ${res.distance_km?.toFixed(2)} km`);
-      } else {
-        setNotice(res.reason || 'No available delivery partner found nearby.');
-      }
-      await fetchOrders();
-    } catch (err: any) {
-      setError(err.message || 'Failed to assign delivery partner');
+    const target = orders.find(o => o.id === orderId);
+    if (target) {
+      setDispatchOrder(target);
     }
+  };
+
+  const handleDispatched = async (orderId: number, partnerName?: string) => {
+    setNotice(`Rider dispatched for Order #${orderId} (${partnerName || 'Assigned Rider'})!`);
+    await fetchOrders();
   };
 
   // Tab definitions with dynamic live counts
@@ -200,6 +200,14 @@ export const RetailerOrdersPage: React.FC = () => {
         onClose={() => setSelectedOrder(null)}
         onUpdateStatus={handleUpdateStatus}
         onAssignDelivery={handleAssignDelivery}
+      />
+
+      {/* Dispatch Modal */}
+      <AssignDeliveryPartnerModal
+        order={dispatchOrder}
+        isOpen={!!dispatchOrder}
+        onClose={() => setDispatchOrder(null)}
+        onAssigned={handleDispatched}
       />
     </div>
   );

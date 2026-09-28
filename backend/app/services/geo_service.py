@@ -1,4 +1,5 @@
 import math
+from typing import Optional
 
 from fastapi import HTTPException, status
 
@@ -6,7 +7,7 @@ from fastapi import HTTPException, status
 EARTH_RADIUS_KM = 6371.0088
 
 
-def validate_coordinates(latitude: float, longitude: float) -> None:
+def validate_coordinates(latitude: Optional[float], longitude: Optional[float]) -> None:
     if latitude is None or longitude is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -20,7 +21,9 @@ def validate_coordinates(latitude: float, longitude: float) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Longitude must be between -180 and 180")
 
 
-def has_valid_coordinates(latitude: float, longitude: float) -> bool:
+def has_valid_coordinates(latitude: Optional[float], longitude: Optional[float]) -> bool:
+    if latitude is None or longitude is None:
+        return False
     try:
         validate_coordinates(latitude, longitude)
     except HTTPException:

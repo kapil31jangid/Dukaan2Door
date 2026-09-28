@@ -15,7 +15,10 @@ from app.services.geo_service import calculate_distance_km, has_valid_coordinate
 
 
 VALID_DELIVERY_TRANSITIONS = {
-    DeliveryStatus.ASSIGNED: {DeliveryStatus.PICKED_UP, DeliveryStatus.CANCELLED},
+    # PICKED_UP remains accepted here for compatibility with existing API clients.
+    # New clients should use ACCEPTED before pickup.
+    DeliveryStatus.ASSIGNED: {DeliveryStatus.ACCEPTED, DeliveryStatus.PICKED_UP, DeliveryStatus.CANCELLED},
+    DeliveryStatus.ACCEPTED: {DeliveryStatus.PICKED_UP, DeliveryStatus.CANCELLED},
     DeliveryStatus.PICKED_UP: {DeliveryStatus.OUT_FOR_DELIVERY},
     DeliveryStatus.OUT_FOR_DELIVERY: {DeliveryStatus.DELIVERED},
     DeliveryStatus.DELIVERED: set(),
@@ -61,23 +64,14 @@ def authorize_delivery_access(db: Session, delivery: Delivery, user_id: int, rol
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this delivery")
 
 
-def assign_delivery_partner(db: Session, order_id: int) -> DeliveryAssignmentResult:
+def get_available_partners_for_order(db: Session, order_id: int) -> list[dict]:
     order = db.query(Order).filter(Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    if order.status != OrderStatus.READY_FOR_PICKUP:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Order must be READY_FOR_PICKUP before assigning delivery",
-        )
-    if order.delivery:
-        return DeliveryAssignmentResult(False, delivery=order.delivery, reason="Delivery already assigned")
-
+    if not order or not order.store:
+        return []
     store = order.store
-    if not store or store.lat is None or store.lng is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Store pickup coordinates are missing")
-    validate_coordinates(order.delivery_lat, order.delivery_lng)
-
+    if store.lat is None or store.lng is None:
+        return []
+    
     partners = (
         db.query(DeliveryPartner)
         .filter(
@@ -87,17 +81,74 @@ def assign_delivery_partner(db: Session, order_id: int) -> DeliveryAssignmentRes
         )
         .all()
     )
-    candidates: list[tuple[float, int, DeliveryPartner]] = []
+    results = []
     for partner in partners:
         if not has_valid_coordinates(partner.current_lat, partner.current_lng):
             continue
-        distance = calculate_distance_km(store.lat, store.lng, partner.current_lat, partner.current_lng)
-        candidates.append((distance, partner.id, partner))
+        dist = calculate_distance_km(float(store.lat), float(store.lng), float(partner.current_lat), float(partner.current_lng))
+        results.append({
+            "id": partner.id,
+            "name": partner.name,
+            "phone": partner.phone,
+            "vehicle_info": partner.vehicle_info or "Delivery Bike",
+            "distance_km": round(dist, 2),
+            "is_available": partner.is_available,
+        })
+    results.sort(key=lambda x: x["distance_km"])
+    return results
 
-    if not candidates:
-        return DeliveryAssignmentResult(False, reason="No delivery partner available")
 
-    distance, _, partner = sorted(candidates)[0]
+def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int] = None) -> DeliveryAssignmentResult:
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    
+    # Auto-advance status to READY_FOR_PICKUP if order is accepted/preparing/received
+    if order.status in [OrderStatus.RECEIVED, OrderStatus.ACCEPTED, OrderStatus.PREPARING]:
+        order.status = OrderStatus.READY_FOR_PICKUP
+        db.flush()
+
+    if order.delivery:
+        return DeliveryAssignmentResult(False, delivery=order.delivery, reason="Delivery already assigned")
+
+    store = order.store
+    if not store or store.lat is None or store.lng is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Store pickup coordinates are missing")
+    validate_coordinates(order.delivery_lat, order.delivery_lng)
+
+    partner: Optional[DeliveryPartner] = None
+    distance: float = 0.5
+
+    if partner_id is not None:
+        partner = db.query(DeliveryPartner).filter(DeliveryPartner.id == partner_id).first()
+        if not partner:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Specified delivery partner not found")
+        if not partner.is_available:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Specified delivery partner is unavailable")
+        if partner.current_lat is not None and partner.current_lng is not None:
+            distance = calculate_distance_km(float(store.lat), float(store.lng), float(partner.current_lat), float(partner.current_lng))
+    else:
+        partners = (
+            db.query(DeliveryPartner)
+            .filter(
+                DeliveryPartner.is_available.is_(True),
+                DeliveryPartner.current_lat.isnot(None),
+                DeliveryPartner.current_lng.isnot(None),
+            )
+            .all()
+        )
+        candidates: list[tuple[float, int, DeliveryPartner]] = []
+        for p in partners:
+            if not has_valid_coordinates(p.current_lat, p.current_lng):
+                continue
+            dist = calculate_distance_km(float(store.lat), float(store.lng), float(p.current_lat), float(p.current_lng))
+            candidates.append((dist, p.id, p))
+
+        if not candidates:
+            return DeliveryAssignmentResult(False, reason="No available delivery partner with a valid location")
+        else:
+            distance, _, partner = sorted(candidates)[0]
+
     delivery = Delivery(
         order_id=order.id,
         delivery_partner_id=partner.id,
@@ -158,6 +209,7 @@ def record_location_update(
     partner: DeliveryPartner,
     latitude: float,
     longitude: float,
+    accuracy_m: Optional[float] = None,
 ) -> DeliveryTracking:
     validate_coordinates(latitude, longitude)
     partner.current_lat = latitude
@@ -166,6 +218,7 @@ def record_location_update(
         delivery_id=delivery.id,
         lat=latitude,
         lng=longitude,
+        accuracy_m=accuracy_m,
         status=delivery.status,
     )
     db.add(update)

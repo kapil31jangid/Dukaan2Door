@@ -629,3 +629,38 @@ def test_complete_backend_lifecycle(client, customer_headers, retailer_headers, 
     tracking = client.get(f"/api/deliveries/{delivery_id}/tracking", headers=customer_headers)
     assert tracking.status_code == 200
     assert len(tracking.json()["updates"]) >= 4
+
+
+def test_delivery_partner_acceptance_and_gps_accuracy(client, customer_headers, retailer_headers, seeded_product):
+    partner_headers = auth_headers(
+        client,
+        "accuracy-partner@example.com",
+        "delivery_partner",
+        "Accuracy Partner",
+        lat=28.6151,
+        lng=77.2101,
+    )
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    delivery = client.post(f"/api/deliveries/{order_id}/assign", headers=retailer_headers)
+    assert delivery.status_code == 200
+    delivery_id = delivery.json()["delivery"]["id"]
+
+    accepted = client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "ACCEPTED"},
+        headers=partner_headers,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "ACCEPTED"
+
+    location = client.post(
+        f"/api/deliveries/{delivery_id}/location",
+        json={"latitude": 28.616, "longitude": 77.211, "accuracy_m": 7.25},
+        headers=partner_headers,
+    )
+    assert location.status_code == 200
+    assert location.json()["accuracy_m"] == pytest.approx(7.25)
+
+    tracking = client.get(f"/api/deliveries/{delivery_id}/tracking", headers=customer_headers)
+    assert tracking.status_code == 200
+    assert tracking.json()["updates"][-1]["accuracy_m"] == pytest.approx(7.25)

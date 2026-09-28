@@ -10,6 +10,7 @@ from app.db.base import Base
 
 class DeliveryStatus(str, enum.Enum):
     ASSIGNED = "ASSIGNED"
+    ACCEPTED = "ACCEPTED"
     PICKED_UP = "PICKED_UP"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
     DELIVERED = "DELIVERED"
@@ -52,6 +53,7 @@ class DeliveryTracking(Base):
     delivery_id: Mapped[int] = mapped_column(ForeignKey("deliveries.id"), nullable=False, index=True)
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
+    accuracy_m: Mapped[Optional[float]] = mapped_column(Float)
     status: Mapped[Optional[DeliveryStatus]] = mapped_column(Enum(DeliveryStatus, name="delivery_status"))
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

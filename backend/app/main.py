@@ -1,20 +1,13 @@
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.deps import get_db
-from app.routers import (
-    auth,
-    customers,
-    deliveries,
-    delivery_partners,
-    matching,
-    orders,
-    products,
-    retailers,
-    websocket,
-)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -33,17 +26,13 @@ if settings.CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Include API Routers under /api
-api_prefix = settings.API_V1_STR
-app.include_router(auth.router, prefix=api_prefix)
-app.include_router(customers.router, prefix=api_prefix)
-app.include_router(retailers.router, prefix=api_prefix)
-app.include_router(delivery_partners.router, prefix=api_prefix)
-app.include_router(products.router, prefix=api_prefix)
-app.include_router(matching.router, prefix=api_prefix)
-app.include_router(orders.router, prefix=api_prefix)
-app.include_router(deliveries.router, prefix=api_prefix)
-app.include_router(websocket.router, prefix=api_prefix)
+# Serve uploaded product images as static files at /uploads/products/<filename>
+UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+# Include API Router under /api
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/health", tags=["Health Check"])

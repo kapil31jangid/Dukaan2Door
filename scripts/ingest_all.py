@@ -177,16 +177,19 @@ def ingest_blinkit(db) -> dict[str, int]:
         if str(item_id) in existing_products:
             counts["duplicates"] += 1
             continue
+        item_type = clean(data.get("Item Type"))
+        name = clean(item_id)
+        sales_price = to_float(data.get("Sales"))
         db.add(
             SourceProduct(
                 source_platform="blinkit",
                 source_dataset=DATASETS["blinkit"]["handle"],
                 source_product_id=str(item_id),
-                product_name=None,
-                category=clean(data.get("Item Type")),
+                product_name=name,
+                category=item_type,
                 unit=str(clean(data.get("Item Weight"))) if clean(data.get("Item Weight")) is not None else None,
-                price=None,
-                mrp=None,
+                price=sales_price,
+                mrp=sales_price,
                 raw_data=data,
             )
         )

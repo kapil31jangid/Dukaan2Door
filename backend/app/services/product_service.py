@@ -47,7 +47,9 @@ def product_to_response(product: Product):
         "description": product.description,
         "category": product.category,
         "price": product.price,
+        "image_url": product.image_url,
         "is_active": product.is_active,
         "quantity": inventory.quantity if inventory else 0,
         "is_available": inventory.is_available if inventory else False,
     }
+

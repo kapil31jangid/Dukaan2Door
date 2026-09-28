@@ -1,21 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Navigation, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { Button } from '../../components/ui/Button';
-import { Alert } from '../../components/ui/Alert';
-import { Card, CardContent } from '../../components/ui/Card';
+import {
+  MapPin,
+  Navigation,
+  Search,
+  Check,
+  Building2,
+  AlertCircle,
+  Loader2,
+  Sparkles,
+  ArrowRight
+} from 'lucide-react';
+import {
+  PRESET_LOCATIONS,
+  PresetLocation,
+  getBrowserCoordinates,
+  reverseGeocode,
+  searchAddressLocations,
+} from '../../services/geoService';
 import { customerService } from '../../services/customerService';
 import { CustomerProfile } from '../../types/user';
-import { Spinner } from '../../components/ui/Spinner';
+import { Button } from '../../components/ui/Button';
+import { Alert } from '../../components/ui/Alert';
 
 export const LocationPage: React.FC = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [address, setAddress] = useState('');
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isGeoLocating, setIsGeoLocating] = useState(false);
+  const [lat, setLat] = useState<number | null>(null);
+  const [lng, setLng] = useState<number | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ address: string; lat: number; lng: number }>>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const [isDetectingGps, setIsDetectingGps] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -23,163 +43,277 @@ export const LocationPage: React.FC = () => {
     customerService.getProfile().then((p) => {
       setProfile(p);
       setAddress(p.delivery_address || '');
-      setLat(p.lat?.toString() || '');
-      setLng(p.lng?.toString() || '');
+      setLat(p.lat || null);
+      setLng(p.lng || null);
     }).catch(() => {});
   }, []);
 
-  const handleGeolocate = () => {
-    if (!navigator.geolocation) {
-      setError('Geolocation is not supported by your browser.');
-      return;
-    }
-    setIsGeoLocating(true);
+  // 1. Detect Device GPS & Reverse Geocode
+  const handleDetectGps = async () => {
+    setIsDetectingGps(true);
     setError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setLat(latitude.toFixed(6));
-        setLng(longitude.toFixed(6));
-        setAddress(`Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`);
-        setIsGeoLocating(false);
-      },
-      (err) => {
-        setError('Could not get your location. Please enter it manually.');
-        setIsGeoLocating(false);
-      }
-    );
+    try {
+      const coords = await getBrowserCoordinates();
+      const resolvedAddress = await reverseGeocode(coords.lat, coords.lng);
+
+      setLat(coords.lat);
+      setLng(coords.lng);
+      setAddress(resolvedAddress);
+
+      // Save directly to profile
+      const updated = await customerService.updateProfile({
+        delivery_address: resolvedAddress,
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+      setProfile(updated);
+      setSuccess(true);
+      setTimeout(() => navigate('/customer/home'), 800);
+    } catch (err: any) {
+      setError(err.message || 'Could not fetch current GPS location.');
+    } finally {
+      setIsDetectingGps(false);
+    }
   };
 
-  const handleSave = async () => {
+  // 2. Select Preset
+  const handleSelectPreset = async (preset: PresetLocation) => {
+    setError(null);
+    setIsSaving(true);
+    try {
+      setLat(preset.lat);
+      setLng(preset.lng);
+      setAddress(preset.address);
+
+      const updated = await customerService.updateProfile({
+        delivery_address: preset.address,
+        lat: preset.lat,
+        lng: preset.lng,
+      });
+      setProfile(updated);
+      setSuccess(true);
+      setTimeout(() => navigate('/customer/home'), 800);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update location.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 3. Search query change
+  const handleSearchChange = async (query: string) => {
+    setSearchQuery(query);
+    if (query.trim().length >= 3) {
+      setIsSearching(true);
+      try {
+        const results = await searchAddressLocations(query);
+        setSearchResults(results);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    } else {
+      setSearchResults([]);
+    }
+  };
+
+  const handleSelectSearchResult = async (result: { address: string; lat: number; lng: number }) => {
+    setError(null);
+    setIsSaving(true);
+    try {
+      setLat(result.lat);
+      setLng(result.lng);
+      setAddress(result.address);
+
+      const updated = await customerService.updateProfile({
+        delivery_address: result.address,
+        lat: result.lat,
+        lng: result.lng,
+      });
+      setProfile(updated);
+      setSuccess(true);
+      setTimeout(() => navigate('/customer/home'), 800);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save selected address.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 4. Manual Save
+  const handleManualSave = async () => {
     if (!address.trim()) {
       setError('Please enter a delivery address.');
       return;
     }
-    const latNum = lat ? parseFloat(lat) : undefined;
-    const lngNum = lng ? parseFloat(lng) : undefined;
-    if (latNum !== undefined && (isNaN(latNum) || latNum < -90 || latNum > 90)) {
-      setError('Latitude must be between -90 and 90.');
-      return;
-    }
-    if (lngNum !== undefined && (isNaN(lngNum) || lngNum < -180 || lngNum > 180)) {
-      setError('Longitude must be between -180 and 180.');
-      return;
-    }
-    setIsLoading(true);
+    setIsSaving(true);
     setError(null);
     try {
-      await customerService.updateProfile({
+      const updated = await customerService.updateProfile({
         delivery_address: address.trim(),
-        lat: latNum,
-        lng: lngNum,
+        lat: lat || undefined,
+        lng: lng || undefined,
       });
+      setProfile(updated);
       setSuccess(true);
-      setTimeout(() => navigate('/customer/home'), 1000);
+      setTimeout(() => navigate('/customer/home'), 800);
     } catch (err: any) {
-      setError(err.message || 'Failed to save location.');
+      setError(err.message || 'Failed to save address.');
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Set Delivery Location</h1>
-        <p className="text-sm text-slate-500 mt-1">We'll find the nearest store to deliver to you.</p>
+        <h1 className="text-2xl font-black text-slate-900 tracking-tight">Delivery Location</h1>
+        <p className="text-xs sm:text-sm text-slate-500 font-medium">
+          Dukaan2Door matches you with the nearest open Kirana store within 2 km – 5 km.
+        </p>
       </div>
 
       {error && <Alert variant="error" onDismiss={() => setError(null)}>{error}</Alert>}
-      {success && <Alert variant="success">Location saved! Redirecting…</Alert>}
+      {success && <Alert variant="success">Location updated successfully! Redirecting…</Alert>}
 
-      {/* Current location */}
-      {profile?.delivery_address && (
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-1">Current Location</p>
-            <div className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-              <p className="text-sm font-semibold text-slate-800">{profile.delivery_address}</p>
+      {/* 1-Click Detect GPS Location */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+        <button
+          onClick={handleDetectGps}
+          disabled={isDetectingGps}
+          className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-800 hover:to-indigo-700 text-white shadow-lg shadow-purple-600/20 active:scale-[0.98] transition-all disabled:opacity-75 group"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white">
+              {isDetectingGps ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Navigation className="w-5 h-5 text-amber-300 fill-amber-300 group-hover:rotate-45 transition-transform" />
+              )}
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="text-left">
+              <p className="text-sm sm:text-base font-black tracking-tight">
+                {isDetectingGps ? 'Detecting GPS Coordinates…' : 'Fetch Current GPS Location'}
+              </p>
+              <p className="text-xs text-purple-200 font-medium">
+                {isDetectingGps ? 'Reverse geocoding with OpenStreetMap…' : 'Automatic 1-click device geolocation'}
+              </p>
+            </div>
+          </div>
 
-      {/* Geolocation option */}
-      <Button
-        variant="outline"
-        size="lg"
-        onClick={handleGeolocate}
-        isLoading={isGeoLocating}
-        leftIcon={<Navigation className="w-4 h-4" />}
-        className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-      >
-        Use My Current Location
-      </Button>
-
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-slate-200" />
-        <span className="text-xs text-slate-400 font-medium">or enter manually</span>
-        <div className="flex-1 h-px bg-slate-200" />
+          <div className="hidden sm:flex items-center px-3 py-1 rounded-full bg-white/20 text-[10px] font-black uppercase tracking-wider">
+            1-CLICK GPS
+          </div>
+        </button>
       </div>
 
-      {/* Manual form */}
-      <Card>
-        <CardContent className="space-y-4 py-5">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              Delivery Address *
-            </label>
-            <input
-              type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="House No, Street, Area, City, PIN"
-              className="block w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-300 transition-all"
-            />
+      {/* Address Search */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
+        <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+          Search Area, Landmark or Society
+        </label>
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <Search className="w-4 h-4" />
           </div>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder="Type your area (e.g. Navrangpura, Vastrapur, Bodakdev)..."
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-2xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-purple-500/10 transition-all"
+          />
+          {isSearching && (
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+              <Loader2 className="w-4 h-4 text-purple-600 animate-spin" />
+            </div>
+          )}
+        </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Latitude (optional)</label>
-              <input
-                type="number"
-                step="any"
-                value={lat}
-                onChange={(e) => setLat(e.target.value)}
-                placeholder="e.g. 28.6139"
-                className="block w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-300 transition-all"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">Longitude (optional)</label>
-              <input
-                type="number"
-                step="any"
-                value={lng}
-                onChange={(e) => setLng(e.target.value)}
-                placeholder="e.g. 77.2090"
-                className="block w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-300 transition-all"
-              />
-            </div>
+        {/* Dropdown Results */}
+        {searchResults.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-md divide-y divide-slate-100 overflow-hidden">
+            {searchResults.map((res, i) => (
+              <button
+                key={i}
+                onClick={() => handleSelectSearchResult(res)}
+                className="w-full flex items-start gap-2.5 p-3 text-left hover:bg-purple-50/60 transition-colors"
+              >
+                <MapPin className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                <span className="text-xs text-slate-800 font-semibold line-clamp-2">{res.address}</span>
+              </button>
+            ))}
           </div>
+        )}
+      </div>
 
-          <p className="text-xs text-slate-400">
-            Latitude and longitude help us find the nearest store. You can leave these blank if you're unsure.
-          </p>
-        </CardContent>
-      </Card>
+      {/* Popular Area Presets */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+        <p className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3">
+          Popular Local Areas (1-Click Switch)
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {PRESET_LOCATIONS.map((preset) => {
+            const isSelected = address?.toLowerCase().includes(preset.name.toLowerCase());
+            return (
+              <button
+                key={preset.name}
+                onClick={() => handleSelectPreset(preset)}
+                className={`p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-2 group ${
+                  isSelected
+                    ? 'bg-purple-50 border-purple-300 text-purple-900 shadow-2xs'
+                    : 'bg-slate-50/80 hover:bg-slate-100/90 border-slate-200/80 text-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    isSelected ? 'bg-purple-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}>
+                    <Building2 className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold leading-tight truncate">{preset.name}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{preset.locality}</p>
+                  </div>
+                </div>
 
-      <Button
-        variant="primary"
-        size="lg"
-        onClick={handleSave}
-        isLoading={isLoading}
-        className="w-full"
-        leftIcon={<CheckCircle2 className="w-4 h-4" />}
-      >
-        Save Location
-      </Button>
+                {isSelected && (
+                  <Check className="w-4 h-4 text-purple-600 shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Manual Address Confirmation */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+        <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+          Or Enter Full House / Flat Address
+        </label>
+        <textarea
+          rows={3}
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="Flat / House No., Apartment Name, Street, Landmark, Pincode"
+          className="w-full p-3.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-2xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-purple-500/10 transition-all"
+        />
+
+        <Button
+          type="button"
+          variant="primary"
+          size="lg"
+          isLoading={isSaving}
+          onClick={handleManualSave}
+          className="w-full font-bold bg-purple-700 hover:bg-purple-600 text-white rounded-2xl py-3"
+          rightIcon={<ArrowRight className="w-4 h-4" />}
+        >
+          Confirm & Save Address
+        </Button>
+      </div>
     </div>
   );
 };
+
+export default LocationPage;

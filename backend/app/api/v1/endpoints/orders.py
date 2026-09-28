@@ -1,5 +1,6 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import false
 from sqlalchemy.orm import Session
 from app.core.deps import UserContext, get_current_user, get_db, require_role
 from app.integrations.notifier import notify_order_status
@@ -37,16 +38,25 @@ def _model_status(schema_status: OrderStatus) -> ModelOrderStatus:
 
 
 def _order_to_response(order: Order) -> OrderResponse:
+    partner = order.delivery.delivery_partner if order.delivery and order.delivery.delivery_partner else None
+    store = order.store
     return OrderResponse(
         id=order.id,
         customer_id=order.customer_id,
         store_id=order.store_id,
+        store_name=store.store_name if store else None,
+        store_address=store.address if store else None,
+        store_lat=store.lat if store else None,
+        store_lng=store.lng if store else None,
         status=_schema_status(order.status),
         total_amount=order.total_amount,
         delivery_address=order.delivery_address,
         delivery_lat=order.delivery_lat,
         delivery_lng=order.delivery_lng,
-        delivery_partner_id=order.delivery.delivery_partner_id if order.delivery else None,
+        delivery_partner_id=partner.id if partner else None,
+        delivery_partner_name=partner.name if partner else None,
+        delivery_partner_phone=partner.phone if partner else None,
+        delivery_partner_vehicle=partner.vehicle_info if partner else None,
         delivery_id=order.delivery.id if order.delivery else None,
         notes=order.notes,
         created_at=order.created_at.isoformat(),
@@ -118,6 +128,8 @@ def create_order(
     delivery_address = payload.delivery_address or customer.delivery_address
     if delivery_address is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Delivery address is required")
+    if delivery_lat is None or delivery_lng is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Latitude and longitude are required")
     validate_coordinates(delivery_lat, delivery_lng)
 
     requested: dict[int, int] = {}
@@ -126,8 +138,8 @@ def create_order(
 
     match = find_matching_store(
         db,
-        delivery_lat,
-        delivery_lng,
+        float(delivery_lat),
+        float(delivery_lng),
         [RequestedItem(product_id=product_id, quantity=quantity) for product_id, quantity in requested.items()],
     )
     if not match.matched or match.store_id is None:
@@ -142,13 +154,12 @@ def create_order(
             db.query(Product)
             .filter(
                 Product.id.in_(requested.keys()),
-                Product.store_id == store_id,
                 Product.is_active.is_(True),
             )
             .all()
         )
         if len(products) != len(requested):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Matched store cannot fulfill all items")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Some requested products are no longer available")
 
         inventory_by_product = {
             inventory.product_id: inventory
@@ -180,11 +191,18 @@ def create_order(
         for product in products:
             quantity = requested[product.id]
             inventory = inventory_by_product.get(product.id)
-            if not inventory or not inventory.is_available or inventory.quantity < quantity:
+            if not inventory:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Insufficient stock for {product.name}",
+                    detail=f"Product '{product.name}' is not stocked by the matched store",
                 )
+
+            if not inventory.is_available or inventory.quantity < quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Insufficient inventory for '{product.name}'",
+                )
+
             subtotal = round(product.price * quantity, 2)
             total_amount += subtotal
             inventory.quantity -= quantity
@@ -231,13 +249,13 @@ def get_order_history(
     query = db.query(Order)
     if current_user.role == "customer":
         customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
-        query = query.filter(Order.customer_id == customer.id) if customer else query.filter(False)
+        query = query.filter(Order.customer_id == customer.id) if customer else query.filter(false())
     elif current_user.role == "retailer":
         retailer = db.query(Retailer).filter(Retailer.user_id == current_user.user_id).first()
-        query = query.filter(Order.store_id == retailer.store.id) if retailer and retailer.store else query.filter(False)
+        query = query.filter(Order.store_id == retailer.store.id) if retailer and retailer.store else query.filter(false())
     elif current_user.role == "delivery_partner":
         partner = db.query(DeliveryPartner).filter(DeliveryPartner.user_id == current_user.user_id).first()
-        query = query.join(Order.delivery).filter(Delivery.delivery_partner_id == partner.id) if partner else query.filter(False)
+        query = query.join(Order.delivery).filter(Delivery.delivery_partner_id == partner.id) if partner else query.filter(false())
 
     if status_filter:
         query = query.filter(Order.status == _model_status(status_filter))
@@ -330,25 +348,72 @@ def update_order(
 @router.get(
     "/{order_id}/status",
     response_model=OrderStatusTrackingResponse,
-    summary="Lightweight order status tracking for customer UI",
+    summary="Detailed order status tracking for customer UI",
 )
 def get_order_status_tracking(
     order_id: int,
     current_user: UserContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Retrieve lightweight status tracking timeline for live tracking screen."""
+    """Retrieve detailed status tracking timeline for live tracking screen."""
     order = _get_authorized_order(db, order_id, current_user)
-    history_logs = [
-        OrderStatusHistoryItem(
-            status=order.status.value,
-            timestamp=order.updated_at.isoformat(),
-            note="Current order status",
-        )
+    partner = order.delivery.delivery_partner if order.delivery and order.delivery.delivery_partner else None
+    store = order.store
+
+    ordered_stages = [
+        ("RECEIVED", "Order received by Dukaan2Door"),
+        ("ACCEPTED", "Order accepted by store"),
+        ("PREPARING", "Store is packing your grocery items"),
+        ("READY_FOR_PICKUP", "Order packed & delivery partner assigned"),
+        ("OUT_FOR_DELIVERY", "Rider is on the way with your order"),
+        ("DELIVERED", "Order delivered at your doorstep"),
     ]
+    status_order = [s[0] for s in ordered_stages]
+    curr_idx = status_order.index(order.status.value) if order.status.value in status_order else 0
+
+    history_logs = []
+    for i in range(curr_idx + 1):
+        st, label = ordered_stages[i]
+        history_logs.append(
+            OrderStatusHistoryItem(
+                status=st,
+                timestamp=order.updated_at.isoformat() if i == curr_idx else order.created_at.isoformat(),
+                note=label,
+            )
+        )
+
     return OrderStatusTrackingResponse(
         order_id=order_id,
         current_status=_schema_status(order.status),
+        store_id=order.store_id,
+        store_name=store.store_name if store else None,
+        store_address=store.address if store else None,
+        store_lat=store.lat if store else None,
+        store_lng=store.lng if store else None,
+        delivery_address=order.delivery_address,
+        delivery_lat=order.delivery_lat,
+        delivery_lng=order.delivery_lng,
+        delivery_id=order.delivery.id if order.delivery else None,
+        delivery_partner_id=partner.id if partner else None,
+        delivery_partner_name=partner.name if partner else None,
+        delivery_partner_phone=partner.phone if partner else None,
+        delivery_partner_vehicle=partner.vehicle_info if partner else None,
+        partner_lat=partner.current_lat if partner else None,
+        partner_lng=partner.current_lng if partner else None,
+        total_amount=order.total_amount,
+        created_at=order.created_at.isoformat(),
         updated_at=order.updated_at.isoformat(),
+        items=[
+            OrderItemResponse(
+                id=item.id,
+                order_id=item.order_id,
+                product_id=item.product_id,
+                product_name=item.product_name,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                subtotal=item.subtotal,
+            )
+            for item in order.items
+        ],
         history=history_logs,
     )

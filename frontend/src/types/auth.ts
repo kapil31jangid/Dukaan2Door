@@ -23,21 +23,13 @@ export interface LoginPayload {
 export interface RegisterPayload {
   email: string;
   password: string;
-  role: 'customer';
+  role: UserRole;
   name: string;
   phone?: string;
   delivery_address?: string;
   lat?: number;
   lng?: number;
-}
-
-export interface RegisterPayload {
-  email: string;
-  password: string;
-  role: 'customer';
-  name: string;
-  phone?: string;
-  delivery_address?: string;
-  lat?: number;
-  lng?: number;
+  store_name?: string;
+  operating_hours?: string;
+  vehicle_info?: string;
 }

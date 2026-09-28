@@ -75,38 +75,20 @@ BlinkIT:
 
 `BlinkIT Grocery Data Excel (1).xlsx` -> `source_products`
 
-BlinkIT is preserved as source data because it does not provide real order IDs and does not provide product names in the downloaded file. The downloaded file has repeated `Item Identifier` values across outlet/sales rows, so ingestion stages one row per unique source item identifier and treats repeats as duplicates.
+The BlinkIT grocery dataset contains 1,559 unique item catalog items (identified by `Item Identifier` such as `FDX32`, `NCB42`, `FDR28`, etc.) with categories (`Item Type`), fat content, item weights, and prices (`Sales`). Ingestion stages one record per unique item identifier with normalized name `Category (Item Identifier)`, price, unit weight, and raw metadata.
 
-Instacart:
+## Application Table Mapping & Retailer Integration
 
-`products.csv` + `aisles.csv` + `departments.csv` -> `source_products`
+To expose the BlinkIT catalog in the Dukaan2Door operational application without inventing fake stores or locations:
 
-`orders.csv` -> `source_orders`
+- The normalization script `scripts/import_blinkit_to_store.py` promotes the 1,559 BlinkIT staged records from `source_products` into operational application `products` and `inventory` tables.
+- The imported catalog is associated with the project's existing controlled operational demo store (`Demo Central Mart`, owned by `demo.retailer.central@example.com`).
+- Each product preserves source provenance in its description: `"Imported catalog item originating from BlinkIT dataset ({source_product_id}). Associated with {store_name} for operational testing."`
+- Initial controlled inventory stock (25 units, `is_available = True`) is created in the `inventory` table.
+- The import is completely idempotent: re-running updates existing records without creating duplicates.
 
-`order_products__prior.csv` and `order_products__train.csv` -> `source_order_items`
-
-## Instacart Subset
-
-The full Instacart order-product data is large. The ingestion script selects a deterministic subset:
-
-- first 10,000 rows from `orders.csv` in original file order
-- matching order-product rows from `order_products__prior.csv` and `order_products__train.csv`
-- all product catalog rows from `products.csv`
-
-No new orders, users, products, prices, coordinates, stores, or relationships are generated.
-
-## Application Table Mapping
-
-The current ingestion does not insert external rows into Dukaan2Door application tables such as:
-
-- `products`
-- `inventory`
-- `stores`
-- `customers`
-- `orders`
-- `order_items`
-
-Reason: the downloaded sources do not contain enough real Dukaan2Door-compatible store/customer/location data. Inserting into application tables would require inventing retailers, stores, store coordinates, customers, or delivery addresses, which is not allowed.
+> **Important Architecture Rule:**
+> BlinkIT source data is used as product/catalog source data. It does not represent actual BlinkIT operational stores, customers, or delivery partners within Dukaan2Door.
 
 ## Commands
 
@@ -117,11 +99,17 @@ cd backend
 python -m alembic upgrade head
 ```
 
-Ingest:
+Ingest source/staging tables:
 
 ```bash
 cd ..
 python scripts/ingest_all.py
+```
+
+Import BlinkIT catalog to operational store:
+
+```bash
+python scripts/import_blinkit_to_store.py
 ```
 
 Verify:

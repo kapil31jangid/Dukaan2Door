@@ -197,12 +197,14 @@ Delivery assignment requires the order to be `READY_FOR_PICKUP`. The nearest ava
 Delivery status flow:
 
 ```text
-ASSIGNED -> PICKED_UP -> OUT_FOR_DELIVERY -> DELIVERED
+ASSIGNED -> ACCEPTED -> PICKED_UP -> OUT_FOR_DELIVERY -> DELIVERED
 ```
+
+The API continues to accept the legacy direct `ASSIGNED -> PICKED_UP` transition for existing clients, while the current web workflow explicitly requires partner acceptance first.
 
 Cancellation is supported from the assigned state. Partner availability is set to unavailable on assignment and restored when a delivery completes or is cancelled.
 
-Location updates validate coordinates, update the delivery partner's current location, and append a `delivery_tracking` history record.
+Location updates validate coordinates, update the delivery partner's current location, and append a `delivery_tracking` history record. Browser GPS clients may send `accuracy_m`; this nullable value is persisted and included in the WebSocket event so the frontend can render an accuracy radius.
 
 ## Routing and Maps
 
@@ -217,6 +219,16 @@ Endpoint:
 ```text
 WebSocket /api/ws/deliveries/{delivery_id}?token=<JWT>
 ```
+
+## End-to-End Story
+
+With the local API running on port `8080`, run from the repository root:
+
+```bash
+python scripts/run_story.py
+```
+
+This safe local story verifies customer ordering and store matching, retailer acceptance and preparation, partner acceptance and pickup, GPS tracking with accuracy, delivery completion, and role-scoped order visibility. The runner never resets or deletes data and refuses non-local URLs unless `--allow-remote` is supplied. The full manual three-screen walkthrough is in [End-to-End Demo Story](../docs/e2e-demo-story.md).
 
 Events:
 

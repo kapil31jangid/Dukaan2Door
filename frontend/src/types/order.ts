@@ -22,12 +22,19 @@ export interface Order {
   id: number;
   customer_id: number;
   store_id: number;
+  store_name?: string | null;
+  store_address?: string | null;
+  store_lat?: number | null;
+  store_lng?: number | null;
   status: OrderStatus;
   total_amount: number;
   delivery_address: string;
   delivery_lat: number;
   delivery_lng: number;
   delivery_partner_id?: number | null;
+  delivery_partner_name?: string | null;
+  delivery_partner_phone?: string | null;
+  delivery_partner_vehicle?: string | null;
   delivery_id?: number | null;
   notes?: string | null;
   created_at: string;
@@ -44,7 +51,25 @@ export interface OrderStatusHistoryItem {
 export interface OrderStatusTracking {
   order_id: number;
   current_status: OrderStatus;
+  store_id?: number | null;
+  store_name?: string | null;
+  store_address?: string | null;
+  store_lat?: number | null;
+  store_lng?: number | null;
+  delivery_address?: string | null;
+  delivery_lat?: number | null;
+  delivery_lng?: number | null;
+  delivery_id?: number | null;
+  delivery_partner_id?: number | null;
+  delivery_partner_name?: string | null;
+  delivery_partner_phone?: string | null;
+  delivery_partner_vehicle?: string | null;
+  partner_lat?: number | null;
+  partner_lng?: number | null;
+  total_amount?: number | null;
+  created_at?: string | null;
   updated_at: string;
+  items?: OrderItem[];
   history: OrderStatusHistoryItem[];
 }
 

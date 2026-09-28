@@ -1,4 +1,4 @@
-import { apiRequest } from './api';
+import { apiRequest, uploadFile } from './api';
 import { RetailerProfile, RetailerUpdate, StoreProfile, StoreUpdate } from '../types/user';
 import { Product, ProductAvailabilityPatch, ProductCreate, ProductUpdate } from '../types/product';
 import { Order, OrderStatus } from '../types/order';
@@ -79,9 +79,20 @@ export const retailerService = {
     });
   },
 
-  async assignDelivery(orderId: number): Promise<DeliveryAssignmentResponse> {
-    return apiRequest<DeliveryAssignmentResponse>(`/api/deliveries/${orderId}/assign`, {
+  async getAvailablePartners(orderId: number): Promise<Array<{ id: number; name: string; phone: string; vehicle_info: string; distance_km: number; is_available: boolean }>> {
+    return apiRequest<Array<{ id: number; name: string; phone: string; vehicle_info: string; distance_km: number; is_available: boolean }>>(`/api/deliveries/${orderId}/available-partners`);
+  },
+
+  async assignDelivery(orderId: number, partnerId?: number): Promise<DeliveryAssignmentResponse> {
+    const url = partnerId ? `/api/deliveries/${orderId}/assign?partner_id=${partnerId}` : `/api/deliveries/${orderId}/assign`;
+    return apiRequest<DeliveryAssignmentResponse>(url, {
       method: 'POST',
     });
+  },
+
+  async uploadProductImage(file: File): Promise<{ url: string; filename: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    return uploadFile<{ url: string; filename: string }>('/api/uploads/product-image', form);
   },
 };

@@ -55,12 +55,19 @@ class OrderResponse(BaseModel):
     id: int
     customer_id: int
     store_id: int
+    store_name: Optional[str] = None
+    store_address: Optional[str] = None
+    store_lat: Optional[float] = None
+    store_lng: Optional[float] = None
     status: OrderStatus
     total_amount: float
     delivery_address: str
     delivery_lat: float
     delivery_lng: float
     delivery_partner_id: Optional[int] = None
+    delivery_partner_name: Optional[str] = None
+    delivery_partner_phone: Optional[str] = None
+    delivery_partner_vehicle: Optional[str] = None
     delivery_id: Optional[int] = None
     notes: Optional[str] = None
     created_at: str
@@ -85,5 +92,23 @@ class OrderStatusHistoryItem(BaseModel):
 class OrderStatusTrackingResponse(BaseModel):
     order_id: int
     current_status: OrderStatus
+    store_id: Optional[int] = None
+    store_name: Optional[str] = None
+    store_address: Optional[str] = None
+    store_lat: Optional[float] = None
+    store_lng: Optional[float] = None
+    delivery_address: Optional[str] = None
+    delivery_lat: Optional[float] = None
+    delivery_lng: Optional[float] = None
+    delivery_id: Optional[int] = None
+    delivery_partner_id: Optional[int] = None
+    delivery_partner_name: Optional[str] = None
+    delivery_partner_phone: Optional[str] = None
+    delivery_partner_vehicle: Optional[str] = None
+    partner_lat: Optional[float] = None
+    partner_lng: Optional[float] = None
+    total_amount: Optional[float] = None
+    created_at: Optional[str] = None
     updated_at: str
+    items: List[OrderItemResponse] = []
     history: List[OrderStatusHistoryItem] = []

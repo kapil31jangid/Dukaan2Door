@@ -43,6 +43,7 @@ Customer Order
   -> Inventory Validation
   -> Retailer Preparation
   -> Delivery Assignment
+  -> Partner Acceptance
   -> Store Pickup
   -> Route Navigation
   -> Customer Delivery
@@ -59,7 +60,9 @@ Customer Order
 - Recheck and lock inventory during order creation before decrementing stock.
 - Enforce order status transitions: `RECEIVED`, `ACCEPTED`, `PREPARING`, `READY_FOR_PICKUP`, `OUT_FOR_DELIVERY`, `DELIVERED`, `REJECTED`, `CANCELLED`.
 - Assign the nearest available delivery partner with valid coordinates.
+- Require delivery partners to accept an assignment before pickup in the web workflow.
 - Track delivery status and location history.
+- Persist browser-reported GPS accuracy and show it on the live map.
 - Calculate routes through OSRM using pickup and destination coordinates.
 - Broadcast delivery events over authenticated WebSocket connections.
 
@@ -91,22 +94,42 @@ Source dataset records are kept separate from operational application records. E
 
 ## Neon Operational Readiness
 
-The live Neon database is aligned with the current SQLAlchemy models and Alembic head `20260922_0002`. Existing rows were preserved during schema alignment; legacy source/staging tables remain separate from operational tables.
+The live Neon database is aligned with the current SQLAlchemy models and Alembic head `20260928_0004`. Existing rows were preserved during schema alignment; legacy source/staging tables remain separate from operational tables.
 
-The repository includes scripts for controlled demo readiness:
+The repository includes scripts for controlled demo readiness and dataset catalog integration:
 
 ```bash
 python scripts/seed_operational_demo.py
+python scripts/import_blinkit_to_store.py
+python scripts/verify_blinkit_integration.py
 python scripts/verify_neon_demo_workflow.py
 ```
 
-The seed script creates fictional operational demo accounts, stores, products, inventory, customers, and delivery partners. The verification script creates orders through the API and exercises store matching, inventory decrement, delivery assignment, delivery state transitions, and tracking against Neon.
+The seed script creates fictional operational demo accounts, stores, products, inventory, customers, and delivery partners. The BlinkIT import script promotes the 1,559 staged grocery products into the controlled demo retailer catalog (`Demo Central Mart`, owned by `demo.retailer.central@example.com`), preserving full source provenance. The verification script exercises the full data pipeline, API endpoints, and live inventory stock.
 
 ## Local Backend Setup
 
+Linux/macOS:
+
 ```bash
 cd backend
+python -m venv .venv
+source .venv/bin/activate
 cp .env.example .env
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -m alembic upgrade head
+uvicorn app.main:app --reload --port 8080
+```
+
+Windows PowerShell:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+cp .env.example .env
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 python -m alembic upgrade head
 uvicorn app.main:app --reload --port 8080
@@ -129,8 +152,16 @@ python -m pytest -q
 Current verified result:
 
 ```text
-39 passed
+40 passed
 ```
+
+Run the complete customer-to-delivery API story against a local backend:
+
+```bash
+python scripts/run_story.py
+```
+
+The story creates isolated demo accounts, places an order, verifies automatic store matching, walks the retailer and delivery-partner lifecycle, sends an accuracy-aware GPS update, and verifies the customer, retailer, and partner order views. See [End-to-End Demo Story](docs/e2e-demo-story.md) for the three-screen manual walkthrough.
 
 ## Deployment
 

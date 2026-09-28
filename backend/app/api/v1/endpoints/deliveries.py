@@ -1,6 +1,5 @@
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import UserContext, get_db, get_current_user, require_role
@@ -20,6 +19,7 @@ from app.schemas.delivery import (
 from app.services.delivery_service import (
     assign_delivery_partner,
     authorize_delivery_access,
+    get_available_partners_for_order,
     get_delivery_or_404,
     get_partner_for_user,
     record_location_update,
@@ -43,13 +43,32 @@ def _delivery_response(delivery) -> DeliveryResponse:
     return DeliveryResponse.model_validate(delivery)
 
 
+@router.get(
+    "/{order_id}/available-partners",
+    summary="Get list of available delivery partners near store for dispatch",
+)
+def get_nearby_partners_endpoint(
+    order_id: int,
+    current_user: UserContext = Depends(require_role(["retailer"])),
+    db: Session = Depends(get_db),
+):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    retailer = db.query(Retailer).filter(Retailer.user_id == current_user.user_id).first()
+    if not retailer or not retailer.store or retailer.store.id != order.store_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this store")
+    return get_available_partners_for_order(db, order_id)
+
+
 @router.post(
     "/{order_id}/assign",
     response_model=DeliveryAssignmentResponse,
-    summary="Assign nearest available delivery partner to ready order",
+    summary="Assign nearest or chosen delivery partner to ready order",
 )
 async def assign_delivery(
     order_id: int,
+    partner_id: Optional[int] = Query(None, description="Optional specific delivery partner ID"),
     current_user: UserContext = Depends(require_role(["retailer"])),
     db: Session = Depends(get_db),
 ):
@@ -60,7 +79,7 @@ async def assign_delivery(
     if not retailer or not retailer.store or retailer.store.id != order.store_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this order")
 
-    result = assign_delivery_partner(db, order_id)
+    result = assign_delivery_partner(db, order_id, partner_id=partner_id)
     if not result.assigned:
         if result.delivery:
             return DeliveryAssignmentResponse(
@@ -131,7 +150,14 @@ async def update_delivery_location(
     delivery = get_delivery_or_404(db, delivery_id)
     authorize_delivery_access(db, delivery, current_user.user_id, current_user.role, write=True)
     partner = get_partner_for_user(db, current_user.user_id)
-    update = record_location_update(db, delivery, partner, payload.latitude, payload.longitude)
+    update = record_location_update(
+        db,
+        delivery,
+        partner,
+        payload.latitude,
+        payload.longitude,
+        payload.accuracy_m,
+    )
     await manager.broadcast(
         delivery_id,
         "delivery_location_updated",
@@ -139,6 +165,7 @@ async def update_delivery_location(
             "delivery_id": delivery_id,
             "latitude": update.lat,
             "longitude": update.lng,
+            "accuracy_m": update.accuracy_m,
             "status": update.status.value if update.status else None,
             "recorded_at": update.recorded_at.isoformat(),
         },

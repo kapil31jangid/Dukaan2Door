@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Navigation, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -6,7 +6,7 @@ import { deliveryService } from '../../services/deliveryService';
 
 interface PartnerLocationTrackerProps {
   deliveryId: number;
-  onLocationUpdated?: (lat: number, lng: number) => void;
+  onLocationUpdated?: (lat: number, lng: number, accuracyM?: number) => void;
   defaultLat?: number;
   defaultLng?: number;
 }
@@ -22,16 +22,20 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
   const [isError, setIsError] = useState(false);
   const [manualLat, setManualLat] = useState<number>(defaultLat);
   const [manualLng, setManualLng] = useState<number>(defaultLng);
+  const [isLive, setIsLive] = useState(false);
+  const [accuracyM, setAccuracyM] = useState<number | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
-  const sendLocation = async (lat: number, lng: number) => {
+  const sendLocation = async (lat: number, lng: number, accuracy?: number) => {
     setIsUpdating(true);
     setStatusMessage(null);
     setIsError(false);
     try {
-      await deliveryService.updateLocation(deliveryId, lat, lng);
-      setStatusMessage(`Coordinates transmitted: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      await deliveryService.updateLocation(deliveryId, lat, lng, accuracy);
+      setAccuracyM(accuracy ?? null);
+      setStatusMessage(`Live GPS sent${accuracy ? ` ±${Math.round(accuracy)}m` : ''}`);
       if (onLocationUpdated) {
-        onLocationUpdated(lat, lng);
+        onLocationUpdated(lat, lng, accuracy);
       }
     } catch (err: any) {
       setIsError(true);
@@ -48,23 +52,38 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
       return;
     }
 
-    setIsUpdating(true);
-    setStatusMessage('Acquiring GPS position...');
-    navigator.geolocation.getCurrentPosition(
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      setIsLive(false);
+      setStatusMessage('Live GPS sharing stopped');
+      return;
+    }
+
+    setIsLive(true);
+    setStatusMessage('Waiting for a high-accuracy GPS fix...');
+    watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+        const accuracy = Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined;
         setManualLat(latitude);
         setManualLng(longitude);
-        sendLocation(latitude, longitude);
+        void sendLocation(latitude, longitude, accuracy);
       },
       (error) => {
+        setIsLive(false);
+        watchIdRef.current = null;
         setIsUpdating(false);
         setIsError(true);
         setStatusMessage(`GPS error: ${error.message}. You can use manual coordinates below.`);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
     );
   };
+
+  useEffect(() => () => {
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+  }, []);
 
   return (
     <Card className="border-slate-200">
@@ -88,7 +107,7 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
             onClick={handleBrowserGPS}
             leftIcon={<Navigation className="w-4 h-4" />}
           >
-            Use Browser GPS
+            {isLive ? 'Stop Live GPS' : 'Start Live GPS'}
           </Button>
 
           <Button
@@ -101,6 +120,12 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
             Transmit
           </Button>
         </div>
+
+        {accuracyM !== null && (
+          <p className="text-xs text-slate-600" aria-live="polite">
+            Reported GPS accuracy: <span className="font-semibold">±{Math.round(accuracyM)} m</span>
+          </p>
+        )}
 
         <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
           <div>

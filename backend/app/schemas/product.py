@@ -7,6 +7,7 @@ class ProductCreate(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     price: float = Field(..., gt=0, description="Price must be strictly positive")
+    image_url: Optional[str] = None
     initial_stock: int = Field(0, ge=0, description="Initial inventory stock count")
     is_available: bool = True
 
@@ -16,6 +17,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
+    image_url: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -36,6 +38,7 @@ class ProductResponse(BaseModel):
     description: Optional[str] = None
     category: Optional[str] = None
     price: float
+    image_url: Optional[str] = None
     is_active: bool = True
     quantity: int = 0
     is_available: bool = True

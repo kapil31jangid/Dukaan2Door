@@ -5,6 +5,7 @@ export interface Product {
   description?: string | null;
   category?: string | null;
   price: number;
+  image_url?: string | null;
   is_active: boolean;
   quantity: number;
   is_available: boolean;
@@ -22,6 +23,7 @@ export interface ProductCreate {
   description?: string;
   category?: string;
   price: number;
+  image_url?: string;
   initial_stock: number;
   is_available: boolean;
 }
@@ -31,6 +33,7 @@ export interface ProductUpdate {
   description?: string;
   category?: string;
   price?: number;
+  image_url?: string;
   is_active?: boolean;
 }
 

@@ -9,6 +9,7 @@ from app.services.geo_service import validate_coordinates
 
 class DeliveryStatus(str, Enum):
     ASSIGNED = "ASSIGNED"
+    ACCEPTED = "ACCEPTED"
     PICKED_UP = "PICKED_UP"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
     DELIVERED = "DELIVERED"
@@ -40,6 +41,7 @@ class DeliveryStatusUpdate(BaseModel):
 class DeliveryLocationUpdate(BaseModel):
     latitude: float
     longitude: float
+    accuracy_m: Optional[float] = Field(default=None, ge=0)
 
     @field_validator("longitude")
     @classmethod
@@ -55,6 +57,7 @@ class DeliveryTrackingResponse(BaseModel):
     delivery_id: int
     latitude: float = Field(alias="lat")
     longitude: float = Field(alias="lng")
+    accuracy_m: Optional[float] = None
     status: Optional[DeliveryStatus] = None
     recorded_at: datetime
 

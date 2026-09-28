@@ -1,5 +1,6 @@
 export type DeliveryStatus =
   | 'ASSIGNED'
+  | 'ACCEPTED'
   | 'PICKED_UP'
   | 'OUT_FOR_DELIVERY'
   | 'DELIVERED'
@@ -33,6 +34,7 @@ export interface DeliveryTrackingPoint {
   delivery_id: number;
   latitude: number;
   longitude: number;
+  accuracy_m?: number | null;
   status?: DeliveryStatus | null;
   recorded_at: string;
 }
@@ -58,6 +60,7 @@ export interface RouteResponse {
 
 export const DELIVERY_STATUS_LABELS: Record<DeliveryStatus, string> = {
   ASSIGNED: 'Assigned',
+  ACCEPTED: 'Accepted by Partner',
   PICKED_UP: 'Picked Up',
   OUT_FOR_DELIVERY: 'Out for Delivery',
   DELIVERED: 'Delivered',
@@ -66,6 +69,7 @@ export const DELIVERY_STATUS_LABELS: Record<DeliveryStatus, string> = {
 
 export const DELIVERY_STATUS_COLORS: Record<DeliveryStatus, { bg: string; text: string; border: string }> = {
   ASSIGNED: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  ACCEPTED: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
   PICKED_UP: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   OUT_FOR_DELIVERY: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
   DELIVERED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
