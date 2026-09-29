@@ -1,7 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
-import { Button } from '../ui/Button';
-import { Navigation, RefreshCw, CheckCircle2, AlertCircle, Play, Square } from 'lucide-react';
 import { deliveryService } from '../../services/deliveryService';
 import { RouteGeometry } from '../../types/delivery';
 
@@ -15,6 +12,8 @@ interface PartnerLocationTrackerProps {
   destinationLat?: number;
   destinationLng?: number;
   routeGeometry?: RouteGeometry | null;
+  autoStartSimulation?: boolean;
+  deliveryStatus?: string;
 }
 
 export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
@@ -27,6 +26,8 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
   destinationLat,
   destinationLng,
   routeGeometry,
+  autoStartSimulation = false,
+  deliveryStatus,
 }) => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -39,10 +40,15 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
   const watchIdRef = useRef<number | null>(null);
   const simulationTimerRef = useRef<number | null>(null);
   const simulationIndexRef = useRef(0);
+  const startedSimulationPhaseRef = useRef<string | null>(null);
+  const deliveryStatusRef = useRef(deliveryStatus);
   const SIMULATION_INTERVAL_MS = 2500;
   const SIMULATION_STEPS = 60; // 60 x 2.5 seconds = 2.5 minutes
 
   const sendLocation = async (lat: number, lng: number, accuracy?: number, source = 'GPS') => {
+    if (deliveryStatusRef.current === 'DELIVERED' || deliveryStatusRef.current === 'CANCELLED') {
+      return;
+    }
     setIsUpdating(true);
     setStatusMessage(null);
     setIsError(false);
@@ -61,34 +67,64 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
     }
   };
 
-  const getSimulationPath = (): Array<[number, number]> => {
+  const getSimulationPath = async (): Promise<Array<[number, number]>> => {
+    const hasCoordinates = (values: Array<number | undefined>): values is number[] => values.every((value) => Number.isFinite(value));
+    const hasPickup = hasCoordinates([pickupLat, pickupLng]);
+    const hasPickupAndDestination = hasCoordinates([pickupLat, pickupLng, destinationLat, destinationLng]);
     const routePoints = routeGeometry?.coordinates
       ?.filter((point) => point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]))
       .map(([lng, lat]) => [lat, lng] as [number, number]);
-    const sourcePoints = routePoints && routePoints.length >= 2 ? routePoints : [];
-    if (sourcePoints.length >= 2) {
-      // OSRM may return only a few geometry points. Resample the polyline so
-      // the demo always takes the same visible 2.5 minutes.
-      return Array.from({ length: SIMULATION_STEPS + 1 }, (_, index) => {
-        const position = (index / SIMULATION_STEPS) * (sourcePoints.length - 1);
-        const lower = Math.floor(position);
-        const upper = Math.min(Math.ceil(position), sourcePoints.length - 1);
-        const fraction = position - lower;
-        return [
-          sourcePoints[lower][0] + (sourcePoints[upper][0] - sourcePoints[lower][0]) * fraction,
-          sourcePoints[lower][1] + (sourcePoints[upper][1] - sourcePoints[lower][1]) * fraction,
-        ] as [number, number];
-      });
-    }
-    if (![pickupLat, pickupLng, destinationLat, destinationLng].every((value) => Number.isFinite(value))) {
+    if (!hasPickup || (deliveryStatus !== 'ACCEPTED' && !hasPickupAndDestination)) {
       return [];
     }
+
+    const pickup: [number, number] = [pickupLat!, pickupLng!];
+    const destination: [number, number] = [destinationLat!, destinationLng!];
+    const start: [number, number] = hasCoordinates([defaultLat, defaultLng])
+      ? [defaultLat!, defaultLng!]
+      : pickup;
+    const isAtPickup = start[0] === pickup[0] && start[1] === pickup[1];
+    const approachRoute = isAtPickup
+      ? null
+      : await deliveryService.getRoute(deliveryId, { lat: start[0], lng: start[1] });
+    const approachCoordinates = approachRoute?.geometry?.coordinates as Array<[number, number]> | undefined;
+    const approachPoints = approachCoordinates
+      ?.filter((point) => point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      .map(([lng, lat]) => [lat, lng] as [number, number]);
+    if (!isAtPickup && (!approachPoints || approachPoints.length < 2)) {
+      throw new Error('OSRM returned no road geometry for the rider-to-store route');
+    }
+    const roadApproachPoints = isAtPickup ? [pickup] : approachPoints!;
+    const approachSteps = deliveryStatus === 'ACCEPTED'
+      ? SIMULATION_STEPS
+      : roadApproachPoints.length > 1 ? Math.min(20, SIMULATION_STEPS - 1) : 0;
     const points: Array<[number, number]> = [];
-    for (let step = 0; step <= SIMULATION_STEPS; step += 1) {
-      const progress = step / SIMULATION_STEPS;
+
+    // Keep both legs on OSRM road geometry: rider -> pickup -> customer.
+    for (let step = 0; step <= approachSteps; step += 1) {
+      const position = (step / Math.max(approachSteps, 1)) * (roadApproachPoints.length - 1);
+      const lower = Math.floor(position);
+      const upper = Math.min(Math.ceil(position), roadApproachPoints.length - 1);
+      const fraction = position - lower;
       points.push([
-        pickupLat! + (destinationLat! - pickupLat!) * progress,
-        pickupLng! + (destinationLng! - pickupLng!) * progress,
+        roadApproachPoints[lower][0] + (roadApproachPoints[upper][0] - roadApproachPoints[lower][0]) * fraction,
+        roadApproachPoints[lower][1] + (roadApproachPoints[upper][1] - roadApproachPoints[lower][1]) * fraction,
+      ]);
+    }
+    if (deliveryStatus === 'ACCEPTED') return points;
+    if (!routePoints || routePoints.length < 2) {
+      throw new Error('OSRM returned no road geometry for the customer route');
+    }
+    const sourcePoints = routePoints;
+    const deliverySteps = SIMULATION_STEPS - approachSteps;
+    for (let step = 1; step <= deliverySteps; step += 1) {
+      const position = (step / deliverySteps) * (sourcePoints.length - 1);
+      const lower = Math.floor(position);
+      const upper = Math.min(Math.ceil(position), sourcePoints.length - 1);
+      const fraction = position - lower;
+      points.push([
+        sourcePoints[lower][0] + (sourcePoints[upper][0] - sourcePoints[lower][0]) * fraction,
+        sourcePoints[lower][1] + (sourcePoints[upper][1] - sourcePoints[lower][1]) * fraction,
       ]);
     }
     return points;
@@ -102,13 +138,27 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
     setIsSimulating(false);
   };
 
-  const handleSimulation = () => {
+  useEffect(() => {
+    deliveryStatusRef.current = deliveryStatus;
+    if (deliveryStatus === 'DELIVERED' || deliveryStatus === 'CANCELLED') {
+      stopSimulation();
+    }
+  }, [deliveryStatus]);
+
+  const handleSimulation = async () => {
     if (isSimulating) {
       stopSimulation();
       setStatusMessage('Demo drive stopped');
       return;
     }
-    const path = getSimulationPath();
+    let path: Array<[number, number]>;
+    try {
+      path = await getSimulationPath();
+    } catch (err: any) {
+      setIsError(true);
+      setStatusMessage(err.message || 'Road route is not available for simulation');
+      return;
+    }
     if (path.length < 2) {
       setIsError(true);
       setStatusMessage('Route coordinates are not available for simulation');
@@ -132,6 +182,14 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
     sendNextPoint();
     simulationTimerRef.current = window.setInterval(sendNextPoint, SIMULATION_INTERVAL_MS);
   };
+
+  useEffect(() => {
+    const phase = deliveryStatus === 'ACCEPTED' ? 'TO_PICKUP' : deliveryStatus === 'OUT_FOR_DELIVERY' ? 'TO_CUSTOMER' : null;
+    if (!autoStartSimulation || !phase || startedSimulationPhaseRef.current === phase) return;
+    if (deliveryStatus !== 'ACCEPTED' && !routeGeometry?.coordinates?.length) return;
+    startedSimulationPhaseRef.current = phase;
+    void handleSimulation();
+  }, [autoStartSimulation, deliveryStatus, routeGeometry, defaultLat, defaultLng]);
 
   const handleBrowserGPS = () => {
     if (!navigator.geolocation) {
@@ -174,101 +232,15 @@ export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
     if (simulationTimerRef.current !== null) window.clearInterval(simulationTimerRef.current);
   }, []);
 
-  return (
-    <Card className="border-slate-200">
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Navigation className="w-4 h-4 text-emerald-600" />
-          <span>Live GPS Broadcaster</span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-xs text-slate-500">
-          Transmit your current location to notify the customer and merchant in real-time.
-        </p>
+  // The profile is loaded after this component mounts. Keep the demo's starting
+  // point aligned with the persisted rider GPS until the rider edits it or
+  // starts live/simulated tracking.
+  useEffect(() => {
+    if (!isLive && !isSimulating && Number.isFinite(defaultLat) && Number.isFinite(defaultLng)) {
+      setManualLat(defaultLat);
+      setManualLng(defaultLng);
+    }
+  }, [defaultLat, defaultLng, isLive, isSimulating]);
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <Button
-            variant="primary"
-            size="sm"
-            className="flex-1"
-            isLoading={isUpdating}
-            onClick={handleBrowserGPS}
-            leftIcon={<Navigation className="w-4 h-4" />}
-          >
-            {isLive ? 'Stop Live GPS' : 'Start Live GPS'}
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            isLoading={isUpdating}
-            onClick={() => sendLocation(manualLat, manualLng)}
-            leftIcon={<RefreshCw className="w-4 h-4" />}
-          >
-            Transmit
-          </Button>
-
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleSimulation}
-            leftIcon={isSimulating ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-          >
-            {isSimulating ? 'Stop Demo Drive' : 'Simulate Drive'}
-          </Button>
-        </div>
-
-        <p className="text-[11px] text-slate-500">
-          Demo Drive replays the route and writes simulated tracking points. Use Start Live GPS for real device coordinates.
-        </p>
-
-        {accuracyM !== null && (
-          <p className="text-xs text-slate-600" aria-live="polite">
-            Reported GPS accuracy: <span className="font-semibold">±{Math.round(accuracyM)} m</span>
-          </p>
-        )}
-
-        <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] font-semibold text-slate-500 block">Latitude</label>
-            <input
-              type="number"
-              step="0.0001"
-              value={manualLat}
-              onChange={(e) => setManualLat(parseFloat(e.target.value) || 0)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold text-slate-500 block">Longitude</label>
-            <input
-              type="number"
-              step="0.0001"
-              value={manualLng}
-              onChange={(e) => setManualLng(parseFloat(e.target.value) || 0)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
-        </div>
-
-        {statusMessage && (
-          <div
-            className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
-              isError
-                ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-            }`}
-          >
-            {isError ? (
-              <AlertCircle className="w-4 h-4 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-            )}
-            <span className="truncate">{statusMessage}</span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+  return null;
 };

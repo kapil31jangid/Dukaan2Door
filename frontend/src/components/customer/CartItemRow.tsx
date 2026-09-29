@@ -15,7 +15,7 @@ export const CartItemRow: React.FC<CartItemRowProps> = ({ item, onQtyChange, onR
   return (
     <div className="flex items-start gap-3 py-4 border-b border-slate-100 last:border-0">
       {/* Icon placeholder */}
-      <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 text-lg font-bold shrink-0 select-none">
+      <div className="flex h-12 w-12 shrink-0 select-none items-center justify-center rounded-lg bg-rose-50 text-lg font-bold text-rose-600">
         {item.name.charAt(0).toUpperCase()}
       </div>
 
@@ -30,7 +30,7 @@ export const CartItemRow: React.FC<CartItemRowProps> = ({ item, onQtyChange, onR
 
       {/* Right side */}
       <div className="flex flex-col items-end gap-2 shrink-0">
-        <p className="text-sm font-bold text-emerald-700">₹{subtotal.toFixed(2)}</p>
+        <p className="text-sm font-bold text-slate-900">₹{subtotal.toFixed(2)}</p>
         <div className="flex items-center gap-2">
           <QuantitySelector value={item.quantity} onChange={onQtyChange} min={0} />
           <button

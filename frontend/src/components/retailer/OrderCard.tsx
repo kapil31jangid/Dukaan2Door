@@ -10,7 +10,6 @@ import {
   XCircle,
   ChefHat,
   PackageCheck,
-  Truck,
   Eye,
   ShoppingBag,
 } from 'lucide-react';
@@ -18,14 +17,12 @@ import {
 interface OrderCardProps {
   order: Order;
   onUpdateStatus: (orderId: number, status: any) => Promise<void>;
-  onAssignDelivery: (orderId: number) => Promise<void>;
   onViewDetails: (order: Order) => void;
 }
 
 export const OrderCard: React.FC<OrderCardProps> = ({
   order,
   onUpdateStatus,
-  onAssignDelivery,
   onViewDetails,
 }) => {
   const [isActing, setIsActing] = useState(false);
@@ -165,16 +162,9 @@ export const OrderCard: React.FC<OrderCardProps> = ({
             )}
 
             {order.status === 'READY_FOR_PICKUP' && (
-              <Button
-                variant="primary"
-                size="sm"
-                isLoading={isActing}
-                onClick={() => handleAction(() => onAssignDelivery(order.id))}
-                leftIcon={<Truck className="w-3.5 h-3.5" />}
-                className="bg-orange-600 hover:bg-orange-700 text-white"
-              >
-                Assign Delivery Partner
-              </Button>
+              <Badge variant="success" size="md">
+                Ready for pickup; waiting for rider claim
+              </Badge>
             )}
 
             {order.status === 'OUT_FOR_DELIVERY' && (

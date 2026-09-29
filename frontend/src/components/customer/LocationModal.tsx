@@ -188,7 +188,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
           <button
             onClick={handleDetectGps}
             disabled={isDetectingGps}
-            className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-800 hover:to-indigo-700 text-white shadow-lg shadow-purple-600/20 active:scale-[0.98] transition-all disabled:opacity-75 group"
+            className="group flex w-full items-center justify-between rounded-xl bg-rose-600 p-4 text-white shadow-lg shadow-rose-600/20 transition-all hover:bg-rose-700 active:scale-[0.98] disabled:opacity-75"
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white">
@@ -202,7 +202,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                 <p className="text-sm font-black tracking-tight">
                   {isDetectingGps ? 'Detecting Location…' : 'Use Current Location'}
                 </p>
-                <p className="text-xs text-purple-200 font-medium">
+                <p className="text-xs font-medium text-rose-100">
                   {isDetectingGps ? 'Waiting for a precise device GPS fix…' : 'Use your device GPS location'}
                 </p>
               </div>
@@ -221,10 +221,10 @@ export const LocationModal: React.FC<LocationModalProps> = ({
               className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200/80 text-slate-800 text-xs font-bold transition-colors"
             >
               <div className="flex items-center gap-2">
-                <Map className="w-4 h-4 text-purple-600" />
+                <Map className="h-4 w-4 text-rose-600" />
                 <span>{showInteractiveMap ? 'Hide Map View' : 'Pin Exactly on OpenStreetMap (Visual Map)'}</span>
               </div>
-              <span className="text-[10px] text-purple-700 uppercase font-black">
+              <span className="text-[10px] font-black uppercase text-rose-700">
                 {showInteractiveMap ? 'Close' : 'Open Map'}
               </span>
             </button>
@@ -245,7 +245,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                   type="button"
                   onClick={handleConfirmMapPin}
                   disabled={isDetectingGps}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center justify-center gap-1.5"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-rose-600 py-2.5 text-xs font-black text-white shadow-md transition-all hover:bg-rose-700"
                 >
                   <Check className="w-4 h-4" />
                   <span>Confirm Pinned Location</span>
@@ -266,7 +266,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search area, apartment, street (e.g. Navrangpura, SG Highway)..."
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-2xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-purple-500/10 transition-all"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 transition-all focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-500/10 sm:text-sm"
               />
               {isSearching && (
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -282,7 +282,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                   <button
                     key={i}
                     onClick={() => handleSelectSearchResult(res)}
-                    className="w-full flex items-start gap-2.5 p-3 text-left hover:bg-purple-50/60 transition-colors"
+                    className="flex w-full items-start gap-2.5 p-3 text-left transition-colors hover:bg-rose-50/60"
                   >
                     <MapPin className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
                     <span className="text-xs text-slate-800 font-semibold line-clamp-2">{res.address}</span>
@@ -306,13 +306,13 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                     onClick={() => handleSelectPreset(preset)}
                     className={`p-3 rounded-2xl border text-left transition-all flex items-center justify-between gap-2 group ${
                       isSelected
-                        ? 'bg-purple-50 border-purple-300 text-purple-900 shadow-2xs'
+                        ? 'border-rose-300 bg-rose-50 text-rose-900 shadow-2xs'
                         : 'bg-slate-50/80 hover:bg-slate-100/90 border-slate-200/80 text-slate-800'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-purple-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                        isSelected ? 'bg-rose-600 text-white' : 'border border-slate-200 bg-white text-slate-600'
                       }`}>
                         <Building2 className="w-4 h-4" />
                       </div>
@@ -323,7 +323,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
                     </div>
 
                     {isSelected && (
-                      <Check className="w-4 h-4 text-purple-600 shrink-0" />
+                      <Check className="h-4 w-4 shrink-0 text-rose-600" />
                     )}
                   </button>
                 );

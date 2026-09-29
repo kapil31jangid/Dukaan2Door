@@ -10,7 +10,6 @@ import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
 import { OrderCard } from '../../components/retailer/OrderCard';
 import { OrderDetailModal } from '../../components/retailer/OrderDetailModal';
-import { AssignDeliveryPartnerModal } from '../../components/retailer/AssignDeliveryPartnerModal';
 import { StoreStatusToggle } from '../../components/retailer/StoreStatusToggle';
 import { RetailerRadiusMap } from '../../components/maps/RetailerRadiusMap';
 import {
@@ -35,7 +34,6 @@ export const RetailerDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [dispatchOrder, setDispatchOrder] = useState<Order | null>(null);
   const navigate = useNavigate();
 
   const loadData = async () => {
@@ -79,18 +77,6 @@ export const RetailerDashboard: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to update order status');
     }
-  };
-
-  const handleAssignDelivery = async (orderId: number) => {
-    const target = orders.find((o) => o.id === orderId);
-    if (target) {
-      setDispatchOrder(target);
-    }
-  };
-
-  const handleDispatched = async (orderId: number, partnerName?: string) => {
-    setActionNotice(`Rider dispatched for Order #${orderId} (${partnerName || 'Assigned Rider'})!`);
-    await loadData();
   };
 
   // Metrics
@@ -266,7 +252,6 @@ export const RetailerDashboard: React.FC = () => {
                 key={order.id}
                 order={order}
                 onUpdateStatus={handleUpdateStatus}
-                onAssignDelivery={handleAssignDelivery}
                 onViewDetails={(ord) => setSelectedOrder(ord)}
               />
             ))}
@@ -280,15 +265,6 @@ export const RetailerDashboard: React.FC = () => {
         isOpen={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
         onUpdateStatus={handleUpdateStatus}
-        onAssignDelivery={handleAssignDelivery}
-      />
-
-      {/* Dispatch Modal */}
-      <AssignDeliveryPartnerModal
-        order={dispatchOrder}
-        isOpen={!!dispatchOrder}
-        onClose={() => setDispatchOrder(null)}
-        onAssigned={handleDispatched}
       />
     </div>
   );

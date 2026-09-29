@@ -74,7 +74,7 @@ Delivery-partner screen:
 
 1. Log in as the assigned partner.
 2. Confirm the delivery assignment with `Accept Delivery Assignment`.
-3. Confirm pickup, start the route, and enable `Start Live GPS`.
+3. Confirm pickup and start the route. Location publishing is automatic.
 4. Keep the screen open so browser GPS updates are sent continuously.
 
 Customer tracking screen:

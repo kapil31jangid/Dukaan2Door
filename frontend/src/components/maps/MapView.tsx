@@ -118,7 +118,7 @@ export const MapView: React.FC<MapViewProps> = ({
       center: [center.lng, center.lat],
       zoom,
       attributionControl: true,
-      cooperativeGestures: true,
+      cooperativeGestures: false,
       dragPan: interactive,
       scrollZoom: interactive,
     });

@@ -410,6 +410,42 @@ def test_delivery_location_updates_partner_current_location(client, db_session, 
     assert math.isclose(partner.current_lng, 77.212)
 
 
+def test_completed_delivery_rejects_late_location_updates(client, customer_headers, retailer_headers, seeded_product):
+    partner_headers = auth_headers(
+        client,
+        "completed-location-partner@example.com",
+        "delivery_partner",
+        "Completed Location Partner",
+        lat=28.6151,
+        lng=77.2101,
+    )
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    delivery_id = client.post(f"/api/deliveries/{order_id}/assign", headers=retailer_headers).json()["delivery"]["id"]
+
+    assert client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "PICKED_UP"},
+        headers=partner_headers,
+    ).status_code == 200
+    assert client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "OUT_FOR_DELIVERY"},
+        headers=partner_headers,
+    ).status_code == 200
+    assert client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "DELIVERED"},
+        headers=partner_headers,
+    ).status_code == 200
+
+    late_location = client.post(
+        f"/api/deliveries/{delivery_id}/location",
+        json={"latitude": 28.617, "longitude": 77.212},
+        headers=partner_headers,
+    )
+    assert late_location.status_code == 409
+
+
 def test_delivery_assignment_ignores_unavailable_and_coordinate_missing_partners(client, customer_headers, retailer_headers, seeded_product):
     unavailable_headers = auth_headers(
         client,

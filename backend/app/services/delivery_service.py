@@ -14,6 +14,13 @@ from app.models.store import Store
 from app.services.geo_service import calculate_distance_km, has_valid_coordinates, validate_coordinates
 
 
+# Keep the named dashboard demo rider at a reproducible starting point for the
+# next test order. The final delivery tracking point remains at the customer.
+DEMO_RIDER_DEFAULTS = {
+    "satellite.rider.arjun.3km@example.com": (23.0276, 72.5368),
+}
+
+
 VALID_DELIVERY_TRANSITIONS = {
     # PICKED_UP remains accepted here for compatibility with existing API clients.
     # New clients should use ACCEPTED before pickup.
@@ -198,6 +205,11 @@ def update_delivery_status(db: Session, delivery: Delivery, target_status: Deliv
             status=target_status,
         )
     )
+    if target_status == DeliveryStatus.DELIVERED and delivery.delivery_partner:
+        email = getattr(delivery.delivery_partner.user, "email", None)
+        default_location = DEMO_RIDER_DEFAULTS.get(email)
+        if default_location:
+            delivery.delivery_partner.current_lat, delivery.delivery_partner.current_lng = default_location
     db.commit()
     db.refresh(delivery)
     return delivery
@@ -211,6 +223,12 @@ def record_location_update(
     longitude: float,
     accuracy_m: Optional[float] = None,
 ) -> DeliveryTracking:
+    if delivery.status in {DeliveryStatus.DELIVERED, DeliveryStatus.CANCELLED}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Location updates are not allowed after a delivery is complete",
+        )
+
     validate_coordinates(latitude, longitude)
     partner.current_lat = latitude
     partner.current_lng = longitude

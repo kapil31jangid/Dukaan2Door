@@ -134,7 +134,8 @@ flowchart TB
 - OSRM route geometry, distance, and estimated travel duration.
 - Delivery tracking records with optional reported GPS accuracy.
 - Authenticated WebSocket delivery events.
-- Browser GPS broadcasting and a controlled 2.5-minute demo-drive simulation.
+- Browser GPS broadcasting and an automatic 2.5-minute road-route drive that
+  begins when the rider marks an order `OUT_FOR_DELIVERY`.
 - Responsive customer, retailer, and delivery-partner screens.
 
 ## Data Architecture
@@ -238,10 +239,10 @@ The manual story is:
 ```text
 Customer places order
   -> Retailer accepts, prepares, and marks ready
-  -> Retailer assigns Arjun
+  -> Rider claims the ready order
   -> Rider accepts and confirms pickup
   -> Rider starts route
-  -> Rider starts Simulate Drive
+  -> Rider marks delivery Out for Delivery; road drive starts automatically
   -> Customer watches the moving map marker
   -> Rider marks delivered
 ```
@@ -310,6 +311,9 @@ instance. Multi-instance deployment would require shared pub/sub
 infrastructure.
 
 ## Documentation
+
+- [End-to-end testing guide](docs/testing-guide.md)
+- [Testing users and API story](docs/testing-users-and-flow.md)
 
 - [Backend Architecture and Services](docs/backend-architecture.md)
 - [Backend Completion Report](docs/backend-completion-report.md)

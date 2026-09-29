@@ -40,7 +40,7 @@ export const OrderStatusPage: React.FC = () => {
     };
 
     fetchStatus();
-    const interval = window.setInterval(fetchStatus, 10000);
+    const interval = window.setInterval(fetchStatus, 2500);
     return () => {
       active = false;
       window.clearInterval(interval);
@@ -77,7 +77,7 @@ export const OrderStatusPage: React.FC = () => {
         // Pins remain useful when OSRM is temporarily unavailable.
       });
     refreshLocation();
-    const locationInterval = window.setInterval(refreshLocation, 10000);
+    const locationInterval = window.setInterval(refreshLocation, 2500);
 
     const socket = new DeliveryWebSocketClient(deliveryId);
     const unsubscribe = socket.subscribe((event) => {
@@ -98,6 +98,12 @@ export const OrderStatusPage: React.FC = () => {
           ...current,
           current_status: event.data.order_status as OrderStatus,
           updated_at: event.data.updated_at || current.updated_at,
+        } : current);
+      }
+      if (event.event === 'delivery_completed') {
+        setTracking((current) => current ? {
+          ...current,
+          current_status: 'DELIVERED',
         } : current);
       }
     });

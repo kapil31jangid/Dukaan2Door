@@ -58,7 +58,7 @@ export const CustomerOrderCard: React.FC<CustomerOrderCardProps> = ({ order }) =
           <button
             type="button"
             onClick={() => navigate(`/customer/orders/${order.id}/status`)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-700"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-rose-700"
           >
             <Navigation className="h-3.5 w-3.5" />
             Track order

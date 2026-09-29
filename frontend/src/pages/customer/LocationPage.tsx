@@ -182,7 +182,7 @@ export const LocationPage: React.FC = () => {
         <button
           onClick={handleDetectGps}
           disabled={isDetectingGps}
-          className="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-600 hover:from-purple-800 hover:to-indigo-700 text-white shadow-lg shadow-purple-600/20 active:scale-[0.98] transition-all disabled:opacity-75 group"
+          className="group flex w-full items-center justify-between rounded-xl bg-rose-600 p-4 text-white shadow-lg shadow-rose-600/20 transition-all hover:bg-rose-700 active:scale-[0.98] disabled:opacity-75"
         >
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white">
@@ -196,7 +196,7 @@ export const LocationPage: React.FC = () => {
               <p className="text-sm sm:text-base font-black tracking-tight">
                 {isDetectingGps ? 'Detecting GPS Coordinates…' : 'Fetch Current GPS Location'}
               </p>
-              <p className="text-xs text-purple-200 font-medium">
+              <p className="text-xs font-medium text-rose-100">
                 {isDetectingGps ? 'Reverse geocoding with OpenStreetMap…' : 'Automatic 1-click device geolocation'}
               </p>
             </div>
@@ -222,7 +222,7 @@ export const LocationPage: React.FC = () => {
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Type your area (e.g. Navrangpura, Vastrapur, Bodakdev)..."
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-2xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-purple-500/10 transition-all"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-xs text-slate-900 placeholder-slate-400 transition-all focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-500/10 sm:text-sm"
           />
           {isSearching && (
             <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -238,7 +238,7 @@ export const LocationPage: React.FC = () => {
               <button
                 key={i}
                 onClick={() => handleSelectSearchResult(res)}
-                className="w-full flex items-start gap-2.5 p-3 text-left hover:bg-purple-50/60 transition-colors"
+                className="flex w-full items-start gap-2.5 p-3 text-left transition-colors hover:bg-rose-50/60"
               >
                 <MapPin className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
                 <span className="text-xs text-slate-800 font-semibold line-clamp-2">{res.address}</span>
@@ -262,13 +262,13 @@ export const LocationPage: React.FC = () => {
                 onClick={() => handleSelectPreset(preset)}
                 className={`p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-2 group ${
                   isSelected
-                    ? 'bg-purple-50 border-purple-300 text-purple-900 shadow-2xs'
+                    ? 'border-rose-300 bg-rose-50 text-rose-900 shadow-2xs'
                     : 'bg-slate-50/80 hover:bg-slate-100/90 border-slate-200/80 text-slate-800'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                    isSelected ? 'bg-purple-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                    isSelected ? 'bg-rose-600 text-white' : 'border border-slate-200 bg-white text-slate-600'
                   }`}>
                     <Building2 className="w-4 h-4" />
                   </div>
@@ -279,7 +279,7 @@ export const LocationPage: React.FC = () => {
                 </div>
 
                 {isSelected && (
-                  <Check className="w-4 h-4 text-purple-600 shrink-0" />
+                  <Check className="h-4 w-4 shrink-0 text-rose-600" />
                 )}
               </button>
             );
@@ -297,7 +297,7 @@ export const LocationPage: React.FC = () => {
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           placeholder="Flat / House No., Apartment Name, Street, Landmark, Pincode"
-          className="w-full p-3.5 bg-slate-50 border border-slate-200 focus:border-purple-500 rounded-2xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-purple-500/10 transition-all"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-900 placeholder-slate-400 transition-all focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-500/10 sm:text-sm"
         />
 
         <Button
@@ -306,7 +306,7 @@ export const LocationPage: React.FC = () => {
           size="lg"
           isLoading={isSaving}
           onClick={handleManualSave}
-          className="w-full font-bold bg-purple-700 hover:bg-purple-600 text-white rounded-2xl py-3"
+          className="w-full rounded-lg bg-rose-600 py-3 font-bold text-white hover:bg-rose-700"
           rightIcon={<ArrowRight className="w-4 h-4" />}
         >
           Confirm & Save Address

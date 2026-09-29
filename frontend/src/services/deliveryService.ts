@@ -30,6 +30,16 @@ export const deliveryService = {
     });
   },
 
+  async getAvailableOrders(): Promise<Order[]> {
+    return apiRequest<Order[]>('/api/deliveries/available-orders');
+  },
+
+  async claimAvailableOrder(orderId: number): Promise<{ assigned: boolean; delivery: Delivery; distance_km?: number }> {
+    return apiRequest<{ assigned: boolean; delivery: Delivery; distance_km?: number }>(`/api/deliveries/available-orders/${orderId}/claim`, {
+      method: 'POST',
+    });
+  },
+
   async getDelivery(deliveryId: number): Promise<Delivery> {
     return apiRequest<Delivery>(`/api/deliveries/${deliveryId}`);
   },
@@ -53,8 +63,10 @@ export const deliveryService = {
     });
   },
 
-  async getRoute(deliveryId: number): Promise<RouteResponse> {
-    return apiRequest<RouteResponse>(`/api/deliveries/${deliveryId}/route`);
+  async getRoute(deliveryId: number, origin?: { lat: number; lng: number }): Promise<RouteResponse> {
+    return apiRequest<RouteResponse>(`/api/deliveries/${deliveryId}/route`, {
+      params: origin ? { origin_lat: origin.lat, origin_lng: origin.lng } : undefined,
+    });
   },
 
   async getTracking(deliveryId: number): Promise<DeliveryTrackingListResponse> {

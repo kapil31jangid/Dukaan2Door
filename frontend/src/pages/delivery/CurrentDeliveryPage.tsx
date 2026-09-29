@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2, Clock3, MapPin, Navigation, Package, Phone, S
 import { deliveryService } from '../../services/deliveryService';
 import { Delivery, DeliveryStatus, RouteResponse } from '../../types/delivery';
 import { Order } from '../../types/order';
+import { DeliveryPartnerProfile } from '../../types/user';
 import { DeliveryMap } from '../../components/maps/DeliveryMap';
 import { PartnerLocationTracker } from '../../components/delivery/PartnerLocationTracker';
 import { Button } from '../../components/ui/Button';
@@ -21,6 +22,7 @@ export const CurrentDeliveryPage: React.FC = () => {
   const [order, setOrder] = useState<Order | null>(null);
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [profile, setProfile] = useState<DeliveryPartnerProfile | null>(null);
   const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -28,7 +30,13 @@ export const CurrentDeliveryPage: React.FC = () => {
 
   const load = async () => {
     try {
-      const orders = await deliveryService.getAssignedOrders();
+      const [orders, profileData] = await Promise.all([deliveryService.getAssignedOrders(), deliveryService.getProfile()]);
+      setProfile(profileData);
+      const profileLat = profileData.current_lat;
+      const profileLng = profileData.current_lng;
+      if (typeof profileLat === 'number' && Number.isFinite(profileLat) && typeof profileLng === 'number' && Number.isFinite(profileLng)) {
+        setCurrentCoords({ lat: profileLat, lng: profileLng });
+      }
       const active = orders.find((item) => !['DELIVERED', 'CANCELLED'].includes(item.status));
       if (!active?.delivery_id) { setOrder(active || null); setDelivery(null); return; }
       const nextDelivery = await deliveryService.getDelivery(active.delivery_id);
@@ -66,6 +74,6 @@ export const CurrentDeliveryPage: React.FC = () => {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><p className="flex items-center gap-2 text-sm font-extrabold"><Navigation className="h-4 w-4 text-blue-600" />Route to customer</p><p className="mt-1 text-xs text-slate-500">Live pickup and drop-off map</p></div><span className="text-xs font-bold text-slate-500">{route?.distance_km ? `${route.distance_km.toFixed(1)} km` : 'Local route'}</span></div><DeliveryMap pickupLat={delivery.pickup_lat} pickupLng={delivery.pickup_lng} pickupLabel={delivery.pickup_address || 'Pickup store'} destinationLat={delivery.destination_lat} destinationLng={delivery.destination_lng} destinationLabel={delivery.destination_address} currentLat={currentCoords?.lat} currentLng={currentCoords?.lng} routeGeometry={route?.geometry} height="460px" /><div className="flex items-center justify-between gap-3 border-t border-slate-100 p-4"><span className="flex items-center gap-2 text-xs text-slate-500"><Store className="h-4 w-4 text-emerald-600" />Order #{order.id} · ₹{order.total_amount.toFixed(0)}</span><Button size="sm" onClick={() => void updateStatus(nextAction.status)} isLoading={isUpdating} rightIcon={<ArrowRight className="h-4 w-4" />}>{nextAction.label}</Button></div></div>
     </div>
 
-    <PartnerLocationTracker deliveryId={delivery.id} onLocationUpdated={(lat, lng) => setCurrentCoords({ lat, lng })} defaultLat={delivery.pickup_lat} defaultLng={delivery.pickup_lng} pickupLat={delivery.pickup_lat} pickupLng={delivery.pickup_lng} destinationLat={delivery.destination_lat} destinationLng={delivery.destination_lng} routeGeometry={route?.geometry} />
+    <PartnerLocationTracker deliveryId={delivery.id} onLocationUpdated={(lat, lng) => setCurrentCoords({ lat, lng })} defaultLat={profile?.current_lat ?? delivery.pickup_lat} defaultLng={profile?.current_lng ?? delivery.pickup_lng} pickupLat={delivery.pickup_lat} pickupLng={delivery.pickup_lng} destinationLat={delivery.destination_lat} destinationLng={delivery.destination_lng} routeGeometry={route?.geometry} deliveryStatus={delivery.status} autoStartSimulation={delivery.status === 'ACCEPTED' || delivery.status === 'OUT_FOR_DELIVERY'} />
   </div>;
 };

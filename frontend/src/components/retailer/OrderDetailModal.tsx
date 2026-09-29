@@ -21,7 +21,6 @@ interface OrderDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpdateStatus: (orderId: number, status: any) => Promise<void>;
-  onAssignDelivery: (orderId: number) => Promise<void>;
 }
 
 export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
@@ -29,7 +28,6 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   isOpen,
   onClose,
   onUpdateStatus,
-  onAssignDelivery,
 }) => {
   if (!order) return null;
 
@@ -185,17 +183,15 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           )}
 
           {order.status === 'READY_FOR_PICKUP' && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={async () => {
-                await onAssignDelivery(order.id);
-                onClose();
-              }}
-              className="bg-orange-600 hover:bg-orange-700 text-white"
-            >
-              Assign Delivery Partner
-            </Button>
+            <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+              Ready for pickup. A nearby delivery partner will accept this order from the delivery dashboard.
+            </p>
+          )}
+
+          {order.status === 'OUT_FOR_DELIVERY' && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+              Out for delivery. Only the delivery partner can mark this order delivered.
+            </p>
           )}
         </div>
       </div>

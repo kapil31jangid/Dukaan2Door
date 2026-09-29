@@ -63,6 +63,18 @@ export const LiveTrackingPage: React.FC = () => {
         if (trackingData.updates.length > 0) {
           setCurrentLocation(trackingData.updates[trackingData.updates.length - 1]);
         }
+
+        const refreshTracking = async () => {
+          try {
+            const latest = await customerService.getDeliveryTracking(deliveryId);
+            if (latest.updates.length > 0) {
+              setCurrentLocation(latest.updates[latest.updates.length - 1]);
+            }
+          } catch {
+            // WebSocket remains the primary live channel.
+          }
+        };
+        const trackingInterval = window.setInterval(refreshTracking, 2500);
         
         setStatusText(
           deliveryData.status === 'DELIVERED' 
@@ -102,15 +114,19 @@ export const LiveTrackingPage: React.FC = () => {
         }
 
         setIsLoading(false);
+
+        return () => window.clearInterval(trackingInterval);
       } catch (err: any) {
         setError(err.message || 'Failed to initialize live tracking.');
         setIsLoading(false);
       }
     };
 
-    initTracking();
+    let stopPolling: (() => void) | undefined;
+    initTracking().then((cleanup) => { stopPolling = cleanup; });
 
     return () => {
+      stopPolling?.();
       wsRef.current?.disconnect();
     };
   }, [orderIdStr]);

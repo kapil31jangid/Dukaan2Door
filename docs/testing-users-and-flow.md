@@ -136,8 +136,9 @@ Refresh button. Find the new order and perform these transitions in order:
 RECEIVED -> ACCEPTED -> PREPARING -> READY_FOR_PICKUP
 ```
 
-After `READY_FOR_PICKUP`, assign a delivery partner. Select Arjun when you
-want to demonstrate a rider approximately 3 km from Satellite.
+After `READY_FOR_PICKUP`, stop the retailer flow. Do not assign a delivery
+partner from the retailer dashboard. The order becomes claimable by an online
+delivery partner from `/delivery/orders`.
 
 ### 3. Delivery partner accepts and drives
 
@@ -154,13 +155,15 @@ Open `/delivery` and complete the rider actions:
 ASSIGNED -> ACCEPTED -> PICKED_UP -> OUT_FOR_DELIVERY
 ```
 
-Use **Simulate Drive** in the Live GPS Broadcaster. It replays the OSRM route
-for approximately 2.5 minutes, sending a tracking point every 2.5 seconds.
-It updates the backend tracking table and broadcasts the rider position to the
-customer map. This is demo GPS data; use **Start Live GPS** for actual browser
-device coordinates.
+Accept the delivery first. The road-based demo drive automatically takes Arjun
+from his default position to the pickup store. After confirming pickup and
+moving to **Out for Delivery**, it automatically follows the road route to the
+customer, updating the backend and broadcasting the rider position to the
+customer map.
 
 When the rider reaches the destination, click **Mark Delivered to Customer**.
+The retailer does not complete this transition; only the delivery partner can
+mark the delivery delivered.
 
 ### 4. Customer verifies live tracking
 
@@ -169,7 +172,7 @@ Return to the customer tracking window and verify:
 - the status timeline advances;
 - the assigned rider name and vehicle are visible;
 - the store and destination markers are present;
-- the rider marker moves during simulation;
+- the rider marker moves during the automatic drive;
 - the latest tracking timestamp and accuracy are shown when available;
 - the final order and delivery status become `DELIVERED`.
 
@@ -191,7 +194,7 @@ health check
   -> customer creates order
   -> automatic store matching
   -> retailer accepts, prepares, and marks ready
-  -> retailer assigns delivery partner
+  -> rider sees the ready order and claims it
   -> partner accepts delivery
   -> partner picks up order
   -> partner starts delivery
@@ -219,7 +222,6 @@ Tests use an isolated temporary database and do not touch Neon.
   `localStorage.removeItem('d2d_cart')` in the browser console and reload.
 - If a retailer dashboard was already open, wait for its 10-second refresh or
   use Refresh.
-- If device GPS fails in Private Browsing, use **Simulate Drive** or manual
-  coordinates. Browser GPS permissions are separate from the demo workflow.
+- Browser GPS is not required for the automatic demo workflow.
 - Customers do not edit order statuses. Retailer and delivery partner actions
   update the customer tracking screen automatically.
