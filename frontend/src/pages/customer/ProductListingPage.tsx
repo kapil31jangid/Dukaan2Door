@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronRight, Filter, MapPin, Store, Clock3 } from 'lucide-react';
 import { customerService } from '../../services/customerService';
 import { Product } from '../../types/product';
 import { ProductGrid } from '../../components/customer/ProductGrid';
@@ -77,12 +77,19 @@ export const ProductListingPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600"><Store className="h-6 w-6" /></div>
+          <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-600">Shopping from your local store</p><h1 className="mt-1 text-lg font-black text-slate-950">Dukaan2Door Local Store</h1><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-600"><span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-rose-600" />Matched at checkout</span><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5 text-rose-600" />Local delivery</span></div></div>
+        </div>
+        <button type="button" onClick={() => navigate('/customer/location')} className="inline-flex items-center justify-center rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100">Change delivery location</button>
+      </section>
       
       {/* Category Pills Header */}
-      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 uppercase tracking-wider">
-            <Filter className="w-3.5 h-3.5 text-purple-600" />
+            <Filter className="w-3.5 h-3.5 text-rose-600" />
             <span>Select Category</span>
           </div>
           {total > 0 && (
@@ -97,7 +104,7 @@ export const ProductListingPage: React.FC = () => {
             onClick={() => handleCategorySelect(null)}
             className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               selectedCategory === null
-                ? 'bg-purple-700 text-white shadow-md shadow-purple-700/20'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
             }`}
           >
@@ -109,7 +116,7 @@ export const ProductListingPage: React.FC = () => {
               onClick={() => handleCategorySelect(cat)}
               className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                 selectedCategory === cat
-                  ? 'bg-purple-700 text-white shadow-md shadow-purple-700/20'
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
               }`}
             >

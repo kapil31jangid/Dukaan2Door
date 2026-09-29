@@ -114,7 +114,7 @@ flowchart TB
 | Persistence | PostgreSQL on Neon, SQLAlchemy ORM |
 | Schema migrations | Alembic |
 | Authentication | JWT, bcrypt password hashing, role authorization |
-| Maps and routing | Leaflet, OpenStreetMap, OSRM |
+| Maps and routing | Mapbox GL JS, OSRM |
 | Real-time updates | FastAPI WebSockets with in-memory connection management |
 | Deployment | Render web service with Neon PostgreSQL |
 
@@ -202,8 +202,13 @@ In a second terminal:
 ```bash
 cd frontend
 npm install
+# Copy frontend/.env.example to frontend/.env and set VITE_MAPBOX_TOKEN to a public pk... token
 npm run dev
 ```
+
+Frontend maps use Mapbox GL JS for rendering and the existing backend OSRM service
+for route geometry. `VITE_MAPBOX_TOKEN` is required for map tiles and should be
+restricted to the local/deployed frontend origins in the Mapbox dashboard.
 
 Open:
 
@@ -313,4 +318,3 @@ infrastructure.
 - [Neon Operational Readiness](docs/neon-operational-readiness.md)
 - [Data Ingestion](docs/data-ingestion.md)
 - [Data Assets](data/README.md)
-

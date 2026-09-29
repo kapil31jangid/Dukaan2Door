@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Check, Package, PackageX } from 'lucide-react';
 import { customerService } from '../../services/customerService';
+import { resolveAssetUrl } from '../../services/api';
 import { Product } from '../../types/product';
 import { useCart } from '../../context/CartContext';
 import { QuantitySelector } from '../../components/customer/QuantitySelector';
@@ -60,6 +61,7 @@ export const ProductDetailPage: React.FC = () => {
   const cartItem = items.find((i) => i.product_id === product.id);
   const qty = cartItem?.quantity ?? 0;
   const isOutOfStock = !product.is_available || product.quantity === 0;
+  const imageUrl = resolveAssetUrl(product.image_url);
 
   const handleAdd = () => {
     addItem(product);
@@ -79,15 +81,17 @@ export const ProductDetailPage: React.FC = () => {
       </button>
 
       <Card className="overflow-hidden">
-        <div className="flex h-48 w-full items-center justify-center border-b border-slate-100 bg-slate-50 sm:h-64">
-          {product.image_url ? (
-            <img src={product.image_url} alt={product.name} className="h-full w-full object-contain p-6" />
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="flex h-64 w-full items-center justify-center bg-slate-50 sm:h-80 lg:h-full lg:min-h-[440px]">
+          {imageUrl ? (
+            <img src={imageUrl} alt={product.name} className="h-full w-full object-contain p-6" />
           ) : (
             <Package className="h-16 w-16 text-slate-300" aria-hidden="true" />
           )}
         </div>
 
-        <CardContent className="p-5 sm:p-8">
+        <CardContent className="p-5 sm:p-8 lg:p-10">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Dukaan2Door Local Store</p>
           <div className="flex items-start justify-between gap-4">
             <div>
               {product.category && (
@@ -104,20 +108,20 @@ export const ProductDetailPage: React.FC = () => {
             )}
           </div>
 
-          <p className="text-3xl font-black text-emerald-700 mt-4">
+          <p className="mt-5 text-3xl font-black text-emerald-700">
             ₹{product.price.toFixed(2)}
           </p>
 
           {product.description && (
             <div className="mt-6">
-              <h3 className="text-sm font-bold text-slate-900 mb-2">Description</h3>
+              <h3 className="mb-2 text-sm font-bold text-slate-900">About this product</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
                 {product.description}
               </p>
             </div>
           )}
 
-          <div className="mt-8 pt-6 border-t border-slate-100">
+          <div className="mt-8 border-t border-slate-100 pt-6">
             {isOutOfStock ? (
               <Button disabled variant="outline" className="w-full" size="lg">
                 Currently Unavailable
@@ -150,6 +154,7 @@ export const ProductDetailPage: React.FC = () => {
             )}
           </div>
         </CardContent>
+        </div>
       </Card>
     </div>
   );

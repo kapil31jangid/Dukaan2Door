@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Minus, Package } from 'lucide-react';
 import { Product } from '../../types/product';
 import { useCart } from '../../context/CartContext';
+import { resolveAssetUrl } from '../../services/api';
 
 interface ProductCardProps {
   product: Product;
@@ -14,6 +15,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const cartItem = items.find((i) => i.product_id === product.id);
   const qty = cartItem?.quantity ?? 0;
   const [imgError, setImgError] = useState(false);
+  const imageUrl = resolveAssetUrl(product.image_url);
 
   const isOutOfStock = !product.is_available || product.quantity === 0;
   const canIncrease = qty < product.quantity;
@@ -40,7 +42,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   return (
     <div
       onClick={() => navigate(`/customer/products/${product.id}`)}
-      className="group relative bg-white rounded-2xl p-3 sm:p-3.5 border border-slate-100 hover:border-slate-200 shadow-xs hover:shadow-xl hover:-translate-y-1 transition-all duration-200 flex flex-col justify-between cursor-pointer overflow-hidden"
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          navigate(`/customer/products/${product.id}`);
+        }
+      }}
+      role="link"
+      tabIndex={0}
+      aria-label={`View ${product.name}`}
+      className="group relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md sm:p-3.5"
     >
       {/* Catalog provenance and availability */}
       <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between z-10 pointer-events-none">
@@ -52,9 +63,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
       {/* Product Image Box */}
       <div className="relative w-full aspect-square rounded-xl bg-slate-50/80 mb-2.5 overflow-hidden flex items-center justify-center p-2">
-        {product.image_url && !imgError ? (
+        {imageUrl && !imgError ? (
           <img
-            src={product.image_url}
+            src={imageUrl}
             alt={product.name}
             onError={() => setImgError(true)}
             className="w-full h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300"
@@ -107,13 +118,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             ) : qty === 0 ? (
               <button
                 onClick={handleAdd}
-                className="px-3 sm:px-4 py-1.5 rounded-xl border border-emerald-600 bg-emerald-50/70 hover:bg-emerald-600 text-emerald-700 hover:text-white text-xs font-black uppercase tracking-wider transition-all duration-150 shadow-2xs flex items-center gap-1 active:scale-95"
+                className="flex items-center gap-1 rounded-lg border border-rose-600 bg-rose-50/70 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-rose-700 shadow-2xs transition-all duration-150 hover:bg-rose-600 hover:text-white active:scale-95 sm:px-4"
               >
                 <span>ADD</span>
                 <Plus className="w-3.5 h-3.5 stroke-[3]" />
               </button>
             ) : (
-              <div className="flex items-center rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/20 overflow-hidden">
+              <div className="flex items-center overflow-hidden rounded-lg bg-rose-600 text-white shadow-md shadow-rose-600/20">
                 <button
                   onClick={handleDecrement}
                   className="px-2 py-1 hover:bg-emerald-700 active:bg-emerald-800 transition-colors focus:outline-none"

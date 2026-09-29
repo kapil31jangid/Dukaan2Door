@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { User, Phone, MapPin, Save, LogOut } from 'lucide-react';
+import { User, Phone, MapPin, Save, LogOut, HelpCircle, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { customerService } from '../../services/customerService';
 import { CustomerProfile } from '../../types/user';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Alert } from '../../components/ui/Alert';
-import { Spinner } from '../../components/ui/Spinner';
 import { useNavigate } from 'react-router-dom';
+import { Spinner } from '../../components/ui/Spinner';
 
 export const ProfilePage: React.FC = () => {
   const { user, logout } = useAuth();
@@ -96,6 +96,12 @@ export const ProfilePage: React.FC = () => {
     <div className="space-y-6">
       <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Your Profile</h1>
 
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 text-sm font-bold">
+        <button type="button" onClick={() => navigate('/customer/profile')} className="border-b-2 border-emerald-600 px-2 pb-2 text-emerald-700">Account</button>
+        <button type="button" onClick={() => navigate('/customer/notifications')} className="flex items-center gap-1 px-2 pb-2 text-slate-500 hover:text-slate-900"><Bell className="h-4 w-4" />Notifications</button>
+        <button type="button" onClick={() => navigate('/customer/help')} className="flex items-center gap-1 px-2 pb-2 text-slate-500 hover:text-slate-900"><HelpCircle className="h-4 w-4" />Help & Support</button>
+      </div>
+
       {error && <Alert variant="error" onDismiss={() => setError(null)}>{error}</Alert>}
       {success && <Alert variant="success" onDismiss={() => setSuccess(false)}>Profile updated successfully.</Alert>}
 
@@ -156,7 +162,7 @@ export const ProfilePage: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Saved Latitude</label>
@@ -177,19 +183,19 @@ export const ProfilePage: React.FC = () => {
                 />
               </div>
             </div>
-          </div>
-          
-          <div className="mt-6">
-            <Button
-              variant="primary"
-              size="lg"
-              className="w-full"
-              onClick={handleSave}
-              isLoading={isSaving}
-              leftIcon={<Save className="w-4 h-4" />}
-            >
-              Save Changes
-            </Button>
+
+            <div className="mt-6">
+              <Button
+                variant="primary"
+                size="lg"
+                className="w-full"
+                onClick={handleSave}
+                isLoading={isSaving}
+                leftIcon={<Save className="w-4 h-4" />}
+              >
+                Save Changes
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

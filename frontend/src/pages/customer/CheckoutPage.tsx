@@ -85,7 +85,7 @@ export const CheckoutPage: React.FC = () => {
       
       isRedirectingToTracking.current = true;
       clearCart();
-      navigate(`/customer/orders/${order.id}/status`, { replace: true });
+      navigate(`/customer/orders/${order.id}/confirmation`, { replace: true });
     } catch (err: any) {
       if (err.status === 404) {
         setError('No store found nearby with these items in stock. Please try a different location or update your cart.');
@@ -105,7 +105,21 @@ export const CheckoutPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Checkout</h1>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Almost there</p>
+        <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">Checkout</h1>
+        <p className="mt-1 text-sm text-slate-500">Confirm your delivery details and place the order with the local store.</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4" aria-label="Checkout progress">
+        {['Delivery', 'Payment', 'Review'].map((step, index) => (
+          <div key={step} className="flex items-center gap-2 text-xs font-bold text-slate-600">
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${index === 0 ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700'}`}>{index + 1}</span>
+            <span className="hidden sm:inline">{step}</span>
+            {index < 2 && <span className="ml-auto h-px flex-1 bg-slate-200" />}
+          </div>
+        ))}
+      </div>
 
       {error && <Alert variant="error" onDismiss={() => setError(null)}>{error}</Alert>}
 
@@ -127,7 +141,7 @@ export const CheckoutPage: React.FC = () => {
           
           <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
             <span className="text-sm font-bold text-slate-900">Total to Pay</span>
-            <span className="text-xl font-black text-emerald-700">₹{totalPrice.toFixed(2)}</span>
+            <span className="text-xl font-black text-emerald-600">₹{totalPrice.toFixed(2)}</span>
           </div>
         </CardContent>
       </Card>

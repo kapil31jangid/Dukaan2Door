@@ -10,6 +10,15 @@
   }
 }
 
+.customer-shell button:focus-visible,
+.customer-shell a:focus-visible,
+.customer-shell input:focus-visible,
+.customer-shell select:focus-visible,
+.customer-shell textarea:focus-visible {
+  outline: 2px solid #e11d48;
+  outline-offset: 2px;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -29,10 +38,37 @@
   background: #94a3b8;
 }
 
-/* Leaflet map container fix */
-.leaflet-container {
-  width: 100%;
-  height: 100%;
-  border-radius: 0.75rem;
-  z-index: 10;
+/* Mapbox marker labels keep map annotations legible across responsive layouts. */
+.dukaan-map-marker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transform: translateY(-50%);
+  cursor: pointer;
+  filter: drop-shadow(0 3px 4px rgb(15 23 42 / 18%));
+}
+
+.dukaan-map-marker__dot {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 3px solid white;
+  border-radius: 9999px;
+  background: var(--marker-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--marker-color) 28%, transparent);
+}
+
+.dukaan-map-marker__label {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 5px 8px;
+  border: 1px solid rgb(226 232 240 / 90%);
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 96%);
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

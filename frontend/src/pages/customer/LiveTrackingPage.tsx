@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Navigation } from 'lucide-react';
+import { ArrowLeft, Phone, Truck } from 'lucide-react';
 import { customerService } from '../../services/customerService';
-import { getToken } from '../../services/api';
 import { DeliveryWebSocketClient } from '../../services/websocketService';
+import { Delivery } from '../../types/delivery';
 import { Order } from '../../types/order';
-import { Delivery, DeliveryStatus, RouteGeometry, DeliveryTrackingPoint } from '../../types/delivery';
+import { DeliveryStatus, RouteGeometry, DeliveryTrackingPoint } from '../../types/delivery';
 import { DeliveryMap } from '../../components/maps/DeliveryMap';
+import { useCart } from '../../context/CartContext';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
 
@@ -85,14 +86,14 @@ export const LiveTrackingPage: React.FC = () => {
                 status: evt.data.status,
               });
             } else if (evt.event === 'delivery_status_updated') {
-              setDelivery(prev => prev ? { ...prev, status: evt.data.status as DeliveryStatus } : prev);
+              setDelivery(prev => prev ? { ...prev, status: evt.data.status as DeliveryStatus } : prev as Delivery | null);
               if (evt.data.status === 'DELIVERED') {
                 setStatusText('Delivered Successfully!');
                 wsRef.current?.disconnect();
               }
             } else if (evt.event === 'delivery_completed') {
               setStatusText('Delivered Successfully!');
-              setDelivery(prev => prev ? { ...prev, status: 'DELIVERED' as DeliveryStatus } : prev);
+              setDelivery(prev => prev ? { ...prev, status: 'DELIVERED' as DeliveryStatus } : null as Delivery | null);
               wsRef.current?.disconnect();
             }
           });
@@ -133,9 +134,11 @@ export const LiveTrackingPage: React.FC = () => {
     );
   }
 
+  const partnerPhone = order.delivery_partner_phone || undefined;
+
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] lg:h-[calc(100vh-80px)] -mx-4 sm:mx-0 sm:rounded-2xl overflow-hidden relative border border-slate-200">
-      
+
       {/* Overlay Status Bar */}
       <div className="absolute top-4 left-4 right-4 z-[1000] bg-white/95 backdrop-blur-md px-4 py-3 rounded-2xl shadow-lg border border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -163,13 +166,35 @@ export const LiveTrackingPage: React.FC = () => {
         <DeliveryMap
           pickupLat={delivery.pickup_lat}
           pickupLng={delivery.pickup_lng}
+          pickupLabel="Store Pickup"
           destinationLat={delivery.destination_lat}
           destinationLng={delivery.destination_lng}
+          destinationLabel="Customer Delivery"
           currentLat={currentLocation?.latitude}
           currentLng={currentLocation?.longitude}
           currentAccuracyM={currentLocation?.accuracy_m}
           routeGeometry={routeGeometry}
         />
+      </div>
+
+      <div className="absolute bottom-4 left-4 right-4 z-[1000] mx-auto max-w-2xl rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur-md sm:bottom-6 sm:left-6 sm:right-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <Truck className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Delivery partner</p>
+              <p className="truncate text-sm font-extrabold text-slate-900">{order.delivery_partner_name || 'Assigned delivery partner'}</p>
+              <p className="text-xs text-slate-500">{order.delivery_partner_vehicle || 'Vehicle details unavailable'}{currentLocation?.accuracy_m != null ? ` · GPS ±${Math.round(currentLocation.accuracy_m)} m` : ''}</p>
+            </div>
+          </div>
+          {partnerPhone && (
+            <a href={`tel:${partnerPhone}`} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-50">
+              <Phone className="h-3.5 w-3.5" /> Call partner
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );

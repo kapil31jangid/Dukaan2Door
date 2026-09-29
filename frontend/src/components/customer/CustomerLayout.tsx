@@ -15,7 +15,9 @@ import {
   ClipboardList,
   Navigation,
   Loader2,
-  Tag
+  Tag,
+  Bell,
+  Home
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
@@ -92,10 +94,10 @@ export const CustomerLayout: React.FC = () => {
     }
   };
 
-  const currentAddress = profile?.delivery_address || 'Navrangpura, Ahmedabad';
+  const currentAddress = profile?.delivery_address || 'Choose delivery location';
 
   return (
-    <div className="min-h-screen bg-slate-50/70 flex flex-col font-sans">
+    <div className="customer-shell flex min-h-screen flex-col bg-[#f6f8fa] font-sans text-slate-900">
       {/* Location Modal */}
       <LocationModal
         isOpen={isLocationModalOpen}
@@ -107,9 +109,9 @@ export const CustomerLayout: React.FC = () => {
       />
 
       {/* Customer storefront header */}
-      <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80 shadow-xs">
+      <header className="sticky top-0 z-50 border-b border-slate-200 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-18 gap-3 sm:gap-6">
+          <div className="flex h-16 items-center justify-between gap-3 sm:gap-6">
             
             {/* Brand Logo & Tagline */}
             <div className="flex items-center gap-4 sm:gap-6 shrink-0">
@@ -117,12 +119,12 @@ export const CustomerLayout: React.FC = () => {
                 onClick={() => navigate('/customer/home')}
                 className="flex items-center gap-1.5 focus:outline-none group text-left"
               >
-                <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-purple-700 via-purple-600 to-pink-500 flex items-center justify-center text-white shadow-md shadow-purple-600/20 group-hover:scale-105 transition-transform">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-600 text-white shadow-sm transition-colors group-hover:bg-rose-700">
                   <ShoppingBag className="w-5 h-5" />
                 </div>
                 <div>
-                  <span className="text-xl sm:text-2xl font-black tracking-tight bg-gradient-to-r from-purple-700 to-pink-600 bg-clip-text text-transparent">
-                    dukaan<span className="text-emerald-500">2door</span>
+                  <span className="text-xl font-black tracking-tight text-slate-950 sm:text-2xl">
+                    dukaan<span className="text-rose-600">2door</span>
                   </span>
                 </div>
               </button>
@@ -137,7 +139,7 @@ export const CustomerLayout: React.FC = () => {
                     <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
                     <span>Local delivery</span>
                   </div>
-                  <div className="flex items-center gap-1 text-xs font-semibold text-slate-500 group-hover:text-purple-700 transition-colors">
+                  <div className="flex items-center gap-1 text-xs font-semibold text-slate-500 transition-colors group-hover:text-rose-700">
                     <span className="max-w-36 truncate">{currentAddress}</span>
                     <ChevronDown className="w-3.5 h-3.5" />
                   </div>
@@ -147,7 +149,7 @@ export const CustomerLayout: React.FC = () => {
                   onClick={handleQuickFetchLocation}
                   disabled={isFetchingLocation}
                   title="Detect live GPS location"
-                  className="ml-2 p-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200/60 transition-all active:scale-95 disabled:opacity-60"
+                  className="ml-2 rounded-lg border border-rose-100 bg-rose-50 p-1.5 text-rose-700 transition-all hover:bg-rose-100 active:scale-95 disabled:opacity-60"
                 >
                   {isFetchingLocation ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -169,13 +171,21 @@ export const CustomerLayout: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={rotatingPlaceholders[placeholderIndex]}
-                  className="w-full pl-11 pr-4 py-2.5 bg-slate-100/90 hover:bg-slate-100 focus:bg-white border border-transparent focus:border-purple-500/50 rounded-2xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-purple-500/10 shadow-inner transition-all"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-11 pr-4 text-sm text-slate-900 shadow-none transition-all placeholder:text-slate-400 hover:bg-white focus:border-rose-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-500/10"
                 />
               </div>
             </form>
 
             {/* Right Side Actions: Orders, Profile, Cart */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <button
+                onClick={() => navigate('/customer/notifications')}
+                className="hidden sm:inline-flex rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-emerald-700"
+                title="Notifications"
+                aria-label="Notifications"
+              >
+                <Bell className="h-4 w-4" />
+              </button>
               
               {/* Order History */}
               <button
@@ -202,7 +212,7 @@ export const CustomerLayout: React.FC = () => {
                 onClick={() => navigate('/customer/cart')}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black shadow-md transition-all active:scale-95 ${
                   totalItems > 0
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                    ? 'bg-rose-600 text-white shadow-rose-600/20 hover:bg-rose-700'
                     : 'bg-slate-900 hover:bg-slate-800 text-white'
                 }`}
               >
@@ -269,7 +279,7 @@ export const CustomerLayout: React.FC = () => {
             <div className="flex items-center gap-2 overflow-x-auto py-2.5 no-scrollbar">
               {[{ id: 'all', name: 'All products' }, ...categories.map((category) => ({ id: category, name: category }))].map((cat) => {
                 const isActive =
-                  (cat.id === 'all' && location.pathname === '/customer/home') ||
+                  (cat.id === 'all' && ['/customer/home', '/customer/store', '/customer/products'].includes(location.pathname)) ||
                   location.search.includes(`category=${encodeURIComponent(cat.id)}`);
 
                 return (
@@ -299,7 +309,7 @@ export const CustomerLayout: React.FC = () => {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 pb-24 sm:px-6 lg:px-8">
         <Outlet />
       </main>
 
@@ -332,6 +342,15 @@ export const CustomerLayout: React.FC = () => {
           </button>
         </div>
       )}
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:hidden" aria-label="Customer navigation">
+        <div className="grid grid-cols-5 gap-1">
+          {[{ label: 'Home', path: '/customer/home', icon: Home }, { label: 'Search', path: '/customer/search', icon: Search }, { label: 'Orders', path: '/customer/orders', icon: ClipboardList }, { label: 'Profile', path: '/customer/profile', icon: User }, { label: 'Cart', path: '/customer/cart', icon: ShoppingCart }].map(({ label, path, icon: Icon }) => {
+            const active = location.pathname === path || (path === '/customer/search' && (location.pathname === '/customer/store' || location.pathname === '/customer/products')) || (path === '/customer/home' && location.pathname === '/customer');
+            return <button key={label} type="button" onClick={() => navigate(path)} className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg text-[10px] font-bold ${active ? 'text-emerald-700' : 'text-slate-500'}`}><Icon className="h-4 w-4" /><span>{label}</span></button>;
+          })}
+        </div>
+      </nav>
     </div>
   );
 };

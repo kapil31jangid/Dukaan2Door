@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Package } from 'lucide-react';
+import { ChevronRight, Navigation, Package } from 'lucide-react';
 import { Order } from '../../types/order';
 import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
@@ -22,8 +22,7 @@ export const CustomerOrderCard: React.FC<CustomerOrderCardProps> = ({ order }) =
 
   return (
     <Card
-      className="hover:shadow-md transition-all cursor-pointer"
-      onClick={() => navigate(`/customer/orders/${order.id}`)}
+      className="hover:shadow-md transition-all"
     >
       <div className="p-4 flex items-start gap-3">
         <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
@@ -45,7 +44,26 @@ export const CustomerOrderCard: React.FC<CustomerOrderCardProps> = ({ order }) =
             <p className="text-xs text-slate-400">{order.items.length} item{order.items.length !== 1 ? 's' : ''}</p>
           </div>
         </div>
-        <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 mt-1" />
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => navigate(`/customer/orders/${order.id}`)}
+          className="inline-flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 transition-colors hover:bg-white hover:text-slate-900"
+        >
+          View order
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+        {!['DELIVERED', 'REJECTED', 'CANCELLED'].includes(order.status) && (
+          <button
+            type="button"
+            onClick={() => navigate(`/customer/orders/${order.id}/status`)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-700"
+          >
+            <Navigation className="h-3.5 w-3.5" />
+            Track order
+          </button>
+        )}
       </div>
     </Card>
   );

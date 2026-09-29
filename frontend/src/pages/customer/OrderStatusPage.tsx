@@ -135,6 +135,9 @@ export const OrderStatusPage: React.FC = () => {
   const currentLat = latestLocation?.latitude;
   const currentLng = latestLocation?.longitude;
   const hasDriver = tracking.delivery_partner_id != null;
+  const storeStageComplete = !['RECEIVED'].includes(tracking.current_status);
+  const partnerStageComplete = hasDriver || ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(tracking.current_status);
+  const deliveryStageActive = ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(tracking.current_status);
 
   return (
     <div className="space-y-6">
@@ -150,12 +153,56 @@ export const OrderStatusPage: React.FC = () => {
       </div>
 
       <Card>
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
+          {[
+            { label: 'Store fulfillment', detail: storeStageComplete ? 'Store is processing your order' : 'Waiting for store acceptance', complete: storeStageComplete, icon: Store },
+            { label: 'Delivery partner', detail: partnerStageComplete ? (tracking.delivery_partner_name || 'Partner assigned') : 'Partner assigned after pickup is ready', complete: partnerStageComplete, icon: Truck },
+            { label: 'Live delivery', detail: deliveryStageActive ? (latestLocation ? 'Latest GPS position received' : 'Route started; awaiting GPS') : 'Live map appears when the order is on the way', complete: deliveryStageActive, icon: Navigation },
+          ].map(({ label, detail, complete, icon: Icon }) => (
+            <div key={label} className={`rounded-xl border p-3 ${complete ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-slate-50'}`}>
+              <div className="flex items-center gap-2">
+                <Icon className={`h-4 w-4 ${complete ? 'text-emerald-600' : 'text-slate-400'}`} />
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-600">{label}</p>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">{detail}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
           <div className="flex items-start gap-3"><Store className="mt-0.5 h-5 w-5 text-emerald-600" /><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Store</p><p className="font-bold text-slate-900">{tracking.store_name || 'Dukaan2Door Local Store'}</p></div></div>
           <div className="flex items-start gap-3"><MapPin className="mt-0.5 h-5 w-5 text-blue-600" /><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivering to</p><p className="font-semibold text-slate-800">{tracking.delivery_address || 'Saved delivery location'}</p></div></div>
           <div className="flex items-start gap-3"><Package className="mt-0.5 h-5 w-5 text-violet-600" /><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order total</p><p className="font-bold text-slate-900">₹{(tracking.total_amount || 0).toFixed(2)}</p></div></div>
         </CardContent>
       </Card>
+
+      {tracking.items && tracking.items.length > 0 && (
+        <Card>
+          <CardContent className="p-0">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="font-bold text-slate-900">Order details</h2>
+              <p className="mt-1 text-sm text-slate-500">Items confirmed by the store</p>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {tracking.items.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-4 px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{item.product_name}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{item.quantity} × ₹{item.unit_price.toFixed(2)}</p>
+                  </div>
+                  <p className="shrink-0 text-sm font-bold text-slate-900">₹{item.subtotal.toFixed(2)}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-5 py-4">
+              <span className="text-sm font-bold text-slate-700">Total</span>
+              <span className="text-lg font-black text-emerald-700">₹{(tracking.total_amount || 0).toFixed(2)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card><CardContent className="p-6"><OrderStatusTimeline currentStatus={tracking.current_status} history={tracking.history} /></CardContent></Card>
 

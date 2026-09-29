@@ -1,4 +1,11 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const REQUEST_TIMEOUT_MS = 15000;
+
+export function resolveAssetUrl(value?: string | null): string | null {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${API_BASE_URL}${value}`;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -55,16 +62,22 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const config: RequestInit = {
     ...customConfig,
     headers,
+    signal: controller.signal,
   };
 
   let response: Response;
   try {
     response = await fetch(url, config);
   } catch (err: any) {
+    if (err?.name === 'AbortError') throw new ApiError('The API request timed out. Check that the backend is running and reachable.', 408);
     throw new ApiError(err.message || 'Network connection failed', 0);
+  } finally {
+    window.clearTimeout(timeout);
   }
 
   if (response.status === 401) {

@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Store, Truck, ShoppingBag, LogOut, User, Menu, X } from 'lucide-react';
 import { Button } from '../ui/Button';
-import { Badge } from '../ui/Badge';
+import { useNavigate } from 'react-router-dom';
 
 interface NavbarProps {
   onToggleSidebar?: () => void;
@@ -10,10 +10,11 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }) => {
-  const { user, role, logout } = useAuth();
+  const { user, role } = useAuth();
+  const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-2xs">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand & Mobile Toggle */}
@@ -27,8 +28,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }
             </button>
 
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-500/20">
-                {role === 'retailer' ? <Store className="w-5 h-5" /> : role === 'delivery_partner' ? <Truck className="w-5 h-5" /> : <ShoppingBag className="w-5 h-5" />}
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-500/20">
+                <Store className="w-4.5 h-4.5" />
               </div>
               <div>
                 <span className="text-base font-extrabold text-slate-900 tracking-tight block leading-tight">
@@ -41,8 +42,33 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }
             </div>
           </div>
 
-          {/* User profile & actions */}
-          <div className="flex items-center gap-4">
+          {/* Desktop Navigation */}
+          <div className="hidden lg:flex items-center gap-8">
+            <a href="/customer/products" className="text-slate-600 hover:text-emerald-800 transition-colors font-medium">
+              Home
+            </a>
+            <a href="/customer/search" className="text-slate-600 hover:text-emerald-800 transition-colors font-medium">
+              Search
+            </a>
+            <a href="/customer/orders" className="text-slate-600 hover:text-emerald-800 transition-colors font-medium">
+              Orders
+            </a>
+            <a href="/customer/profile" className="text-slate-600 hover:text-emerald-800 transition-colors font-medium">
+              Account
+            </a>
+          </div>
+
+          {/* Cart & Mobile Actions */}
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/customer/cart')}
+              className="relative"
+            >
+              <ShoppingBag className="w-5 h-5 text-slate-600 hover:text-emerald-700 transition-colors" />
+            </Button>
+
             {user && (
               <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-100">
                 <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-600">
@@ -60,7 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }
             <Button
               variant="outline"
               size="sm"
-              onClick={logout}
+              onClick={() => navigate('/auth/logout')}
               leftIcon={<LogOut className="w-4 h-4" />}
               className="text-slate-600 border-slate-200 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50/50"
             >
@@ -72,4 +98,3 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, isSidebarOpen }
     </header>
   );
 };
-

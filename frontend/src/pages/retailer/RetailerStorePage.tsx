@@ -198,11 +198,11 @@ export const RetailerStorePage: React.FC = () => {
               />
             </div>
 
-            {/* Interactive OpenStreetMap Location Picker */}
+            {/* Interactive Mapbox location picker */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold text-slate-700">
-                  Pin Physical Store Location on Map (OpenStreetMap)
+                    Pin Physical Store Location on Map
                 </label>
                 <span className="text-[11px] text-slate-400 font-medium">
                   Drag the pin or click on map to position exactly

@@ -57,51 +57,6 @@ export const PRESET_LOCATIONS: PresetLocation[] = [
 ];
 
 /**
- * Fetch approximate city coordinates from the network. This is not used for delivery GPS.
- */
-export async function getIpCoordinates(): Promise<{ lat: number; lng: number; city?: string; region?: string }> {
-  // Provider 1: ipwho.is
-  try {
-    const res = await fetch('https://ipwho.is/');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.success && data.latitude && data.longitude) {
-        return {
-          lat: Number(data.latitude),
-          lng: Number(data.longitude),
-          city: data.city,
-          region: data.region,
-        };
-      }
-    }
-  } catch {}
-
-  // Provider 2: geojs.io
-  try {
-    const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.latitude && data.longitude) {
-        return {
-          lat: parseFloat(data.latitude),
-          lng: parseFloat(data.longitude),
-          city: data.city,
-          region: data.region,
-        };
-      }
-    }
-  } catch {}
-
-  // Default fallback to Ahmedabad Central hub
-  return {
-    lat: 23.0365,
-    lng: 72.5611,
-    city: 'Ahmedabad',
-    region: 'Gujarat',
-  };
-}
-
-/**
  * Fetch current device coordinates via the HTML5 Geolocation API.
  * Network/IP coordinates are deliberately not used here because they can be kilometres away.
  */
@@ -193,15 +148,9 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
     }
   } catch {}
 
-  // Fallback to IP city / region
-  try {
-    const ip = await getIpCoordinates();
-    if (ip.city && ip.region) {
-      return `${ip.city}, ${ip.region}`;
-    }
-  } catch {}
-
-  return `Ahmedabad, Gujarat 380009`;
+  // Keep the address label tied to the actual device coordinates. An IP-derived
+  // city can be several kilometres away and must not replace a real GPS fix.
+  return `Current device location (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
 }
 
 /**
