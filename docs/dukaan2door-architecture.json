@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Dukaan2Door Hyperlocal Platform Architecture",
+    "output": "dukaan2door-architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "customer_ui", "type": "frontend", "label": "Customer Portal", "sublabel": "React / TS / Leaflet", "pos": [50, 140], "size": [140, 60] },
+    { "id": "retailer_ui", "type": "frontend", "label": "Retailer Portal", "sublabel": "Dashboard / Orders", "pos": [50, 270], "size": [140, 60] },
+    { "id": "delivery_ui", "type": "frontend", "label": "Rider Portal", "sublabel": "GPS / Delivery App", "pos": [50, 400], "size": [140, 60] },
+    { "id": "api_router", "type": "backend", "label": "FastAPI Gateway", "sublabel": "REST + WebSockets", "pos": [300, 270], "size": [150, 60] },
+    { "id": "auth_svc", "type": "security", "label": "Auth & RBAC", "sublabel": "JWT & Password Hash", "pos": [300, 110], "size": [150, 60], "tag": "JWT Bearer" },
+    { "id": "store_matcher", "type": "backend", "label": "Store Matcher", "sublabel": "2km / 5km Radius Engine", "pos": [560, 140], "size": [160, 60] },
+    { "id": "order_svc", "type": "backend", "label": "Order Engine", "sublabel": "State Machine & Lock", "pos": [560, 270], "size": [160, 60] },
+    { "id": "delivery_svc", "type": "backend", "label": "Delivery Dispatch", "sublabel": "Assignment & GPS Trail", "pos": [560, 400], "size": [160, 60] },
+    { "id": "neon_db", "type": "database", "label": "PostgreSQL (Neon)", "sublabel": "SQLAlchemy + Alembic", "pos": [830, 270], "size": [160, 60] },
+    { "id": "osrm_router", "type": "external", "label": "OSRM Routing", "sublabel": "Road Graph & ETA", "pos": [830, 400], "size": [160, 60], "tag": "OSM Road Network" },
+    { "id": "osm_geocoder", "type": "external", "label": "OpenStreetMap", "sublabel": "Nominatim & Map Tiles", "pos": [50, 530], "size": [160, 60], "tag": "Geo Fallback" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Client Portals (Single-Page App)", "wraps": ["customer_ui", "retailer_ui", "delivery_ui"] },
+    { "kind": "security-group", "label": "FastAPI Backend Core Runtime", "wraps": ["api_router", "auth_svc", "store_matcher", "order_svc", "delivery_svc"] },
+    { "kind": "region", "label": "Cloud Database (Neon)", "wraps": ["neon_db"] },
+    { "kind": "region", "label": "External Geo Services", "wraps": ["osrm_router", "osm_geocoder"] }
+  ],
+  "connections": [
+    { "id": "customer-to-api", "from": "customer_ui", "to": "api_router", "label": "Order & Track", "variant": "emphasis", "labelDy": -10 },
+    { "id": "retailer-to-api", "from": "retailer_ui", "to": "api_router", "label": "Manage & Dispatch" },
+    { "id": "delivery-to-api", "from": "delivery_ui", "to": "api_router", "label": "GPS & Status", "labelDy": 10 },
+    { "id": "auth-verify", "from": "auth_svc", "to": "api_router", "label": "Authorize", "variant": "security" },
+    { "id": "api-to-matcher", "from": "api_router", "to": "store_matcher", "label": "Find Store", "labelDy": -10 },
+    { "id": "api-to-orders", "from": "api_router", "to": "order_svc", "label": "Place Order", "variant": "emphasis" },
+    { "id": "api-to-delivery", "from": "api_router", "to": "delivery_svc", "label": "Dispatch Rider", "labelDy": 10 },
+    { "id": "orders-to-db", "from": "order_svc", "to": "neon_db", "label": "Row Lock & Save", "variant": "emphasis" },
+    { "id": "delivery-to-db", "from": "delivery_svc", "to": "neon_db", "label": "Save Tracking" },
+    { "id": "delivery-to-osrm", "from": "delivery_svc", "to": "osrm_router", "label": "Get Road Route" },
+    { "id": "customer-to-osm", "from": "customer_ui", "to": "osm_geocoder", "label": "Tiles & Geocoding", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Client Portals", "items": ["Unified login gateway routing into Customer, Retailer, and Rider dashboards", "HTML5 GPS with IP geolocation and Nominatim fallback chain", "Leaflet OpenStreetMap with real-time WebSocket rider markers"] },
+    { "dot": "emerald", "title": "Core Services", "items": ["Inventory-aware 2 km radius store matching with 5 km fallback", "Atomic order creation with SQLAlchemy with_for_update() row locking", "OSRM road network routing and distance-ranked delivery dispatch"] },
+    { "dot": "rose", "title": "Security & Persistence", "items": ["JWT Bearer tokens with strict role-based access control (RBAC)", "Serverless PostgreSQL on Neon Cloud with Alembic migrations", "Append-only GPS breadcrumb delivery tracking history"] }
+  ]
+}

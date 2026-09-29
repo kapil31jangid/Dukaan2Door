@@ -1,0 +1,419 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "skipped",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-09-29T19:07:31.941Z",
+  "specification": {
+    "path": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.json",
+    "sha256": "7db34f4ef2480a7eded9f401087fd414de46fd5a55eace49394d5e24c87f35f5",
+    "bytes": 4541
+  },
+  "artifact": {
+    "path": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+    "sha256": "0b0363fc7193f370309001c45b2a15ae592dde5a34e1ced0d9bbd4297b233e61",
+    "bytes": 771429
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/home/kapil31jangid/.nvm/versions/node/v24.18.0/bin/node",
+        "/home/kapil31jangid/.agents/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.json",
+        "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+        "--quality",
+        "showcase",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "7db34f4ef2480a7eded9f401087fd414de46fd5a55eace49394d5e24c87f35f5",
+          "bytes": 4541
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 446,
+      "command": [
+        "/home/kapil31jangid/.nvm/versions/node/v24.18.0/bin/node",
+        "/home/kapil31jangid/.agents/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.json",
+        "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+        "--quality",
+        "showcase",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "a52fe717-4054-4619-bd8c-87fd1aee583f",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.json",
+        "output": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+        "specification": {
+          "sha256": "7db34f4ef2480a7eded9f401087fd414de46fd5a55eace49394d5e24c87f35f5",
+          "bytes": 4541
+        },
+        "artifact": {
+          "sha256": "0b0363fc7193f370309001c45b2a15ae592dde5a34e1ced0d9bbd4297b233e61",
+          "bytes": 771429
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 177,
+      "command": [
+        "/home/kapil31jangid/.nvm/versions/node/v24.18.0/bin/node",
+        "/home/kapil31jangid/.agents/skills/archify/bin/archify.mjs",
+        "check",
+        "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+        "artifact": {
+          "sha256": "0b0363fc7193f370309001c45b2a15ae592dde5a34e1ced0d9bbd4297b233e61",
+          "bytes": 771429
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 1,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 19,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 7.5,
+            "maxBends": 3,
+            "routesOverSuggestedBends": 2,
+            "maxStretch": 1.24,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 24,
+            "minInteriorSegmentPx": 54,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [
+              {
+                "left": {
+                  "id": "customer-to-api",
+                  "from": "customer_ui",
+                  "to": "api_router",
+                  "label": "Order &amp; Track",
+                  "collectionIndex": 0,
+                  "artifactIndex": 1
+                },
+                "right": {
+                  "id": "retailer-to-api",
+                  "from": "retailer_ui",
+                  "to": "api_router",
+                  "label": "Manage &amp; Dispatch",
+                  "collectionIndex": 1,
+                  "artifactIndex": 2
+                },
+                "point": [
+                  276,
+                  246
+                ],
+                "sharedNode": "api_router"
+              }
+            ],
+            "detours": [
+              {
+                "relationship": {
+                  "id": "api-to-orders",
+                  "from": "api_router",
+                  "to": "order_svc",
+                  "label": "Place Order",
+                  "collectionIndex": 5,
+                  "artifactIndex": 6
+                },
+                "bends": 3,
+                "stretch": 1.24
+              },
+              {
+                "relationship": {
+                  "id": "delivery-to-db",
+                  "from": "delivery_svc",
+                  "to": "neon_db",
+                  "label": "Save Tracking",
+                  "collectionIndex": 8,
+                  "artifactIndex": 9
+                },
+                "bends": 3,
+                "stretch": 1
+              }
+            ]
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 80,
+            "emptyTopRatio": 0.118,
+            "occupiedTop": 80,
+            "viewBoxTop": 0,
+            "canvasHeight": 678,
+            "typicalNodeHeight": 60,
+            "reviewSuggested": false
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 993.75,
+            "actualBudgetPx": 993.75,
+            "actualReaderWidth": 1023.75,
+            "desiredReaderWidth": 1023.75,
+            "viewportCap": 1376,
+            "limit": "source-size",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": true,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": "customer-to-api",
+              "from": "customer_ui",
+              "to": "api_router"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 7.5,
+            "semanticTextCount": 37
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "a52fe717-4054-4619-bd8c-87fd1aee583f"
+      }
+    },
+    "browser-check": {
+      "status": "skipped",
+      "exitCode": 2,
+      "durationMs": 40,
+      "command": [
+        "/home/kapil31jangid/.nvm/versions/node/v24.18.0/bin/node",
+        "/home/kapil31jangid/.agents/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+        "--json",
+        "--require-provenance"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "skipped",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "a52fe717-4054-4619-bd8c-87fd1aee583f",
+        "artifact": {
+          "path": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+          "sha256": "0b0363fc7193f370309001c45b2a15ae592dde5a34e1ced0d9bbd4297b233e61",
+          "bytes": 771429
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "unavailable",
+          "executable": null
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/chrome-unavailable",
+            "severity": "warning",
+            "message": "Chrome or Chromium is unavailable. Set ARCHIFY_CHROME to its executable path.",
+            "subject": {
+              "artifact": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html"
+            },
+            "evidence": {
+              "executable": null
+            },
+            "supportedFixes": [
+              "set ARCHIFY_CHROME to a Chrome or Chromium executable and rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "skipped",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "skipped",
+          "viewports": []
+        },
+        "readability": {
+          "status": "skipped",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "skipped",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "receipt": "dukaan2door-architecture.browser-check.json",
+          "files": []
+        },
+        "error": "Chrome or Chromium is unavailable. Set ARCHIFY_CHROME to its executable path."
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/chrome-unavailable",
+      "severity": "warning",
+      "message": "Chrome or Chromium is unavailable. Set ARCHIFY_CHROME to its executable path.",
+      "subject": {
+        "artifact": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html"
+      },
+      "evidence": {
+        "executable": null
+      },
+      "supportedFixes": [
+        "set ARCHIFY_CHROME to a Chrome or Chromium executable and rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.finalize.json",
+    "summaryReceipt": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.finalize-summary.json",
+    "browserCheckReceipt": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-09-29T19:07:32.720Z",
+  "durationMs": 778,
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-09-29T19:07:03.787Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "a52fe717-4054-4619-bd8c-87fd1aee583f",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.json",
+  "output": "/home/kapil31jangid/Dukaan2Door/docs/dukaan2door-architecture.html",
+  "specification": {
+    "sha256": "7db34f4ef2480a7eded9f401087fd414de46fd5a55eace49394d5e24c87f35f5",
+    "bytes": 4541
+  },
+  "artifact": {
+    "sha256": "0b0363fc7193f370309001c45b2a15ae592dde5a34e1ced0d9bbd4297b233e61",
+    "bytes": 771429
+  }
+}

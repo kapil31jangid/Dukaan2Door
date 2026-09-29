@@ -9,6 +9,7 @@ Welcome to the comprehensive technical documentation for **Dukaan2Door**, the hy
 | Document | Description |
 |---|---|
 | 🗺️ [Architecture & Backend Services](backend-architecture.md) | High-level system architecture, service breakdown, state machines, and lifecycle rules. |
+| 📊 [Interactive Architecture Diagram (Archify)](dukaan2door-architecture.html) | Interactive visual map of 11 core runtime components, trust boundaries, and request paths. |
 | 💻 [Frontend Architecture](frontend-architecture.md) | 3-Portal UI design (Customer, Retailer, Delivery), state management, Leaflet/OSM maps, and geolocation. |
 | 🔌 [API Reference & WebSockets](api-reference.md) | Comprehensive REST API specifications, request/response models, status codes, and WebSocket events. |
 | 🗄️ [Database Schema & ERD](database-schema.md) | PostgreSQL table structures, foreign key constraints, indexes, data types, and Alembic migrations. |
