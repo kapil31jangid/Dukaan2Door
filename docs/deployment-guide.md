@@ -76,10 +76,10 @@ python scripts/seed_satellite_catalog.py --allow-remote
 ### Option A: Render Web Service
 
 1. Create a **New Web Service** on Render connected to your GitHub repository.
-2. Set the following build settings:
+2. Configuration:
    - **Root Directory**: `backend`
-   - **Environment**: `Python 3`
-   - **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt && python -m alembic upgrade head`
+   - **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt`
+   - **Pre-deploy Command**: `python -m alembic upgrade head`
    - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 3. Configure Environment Variables in Render:
    - `DATABASE_URL`: Your Neon PostgreSQL connection string
@@ -88,6 +88,12 @@ python scripts/seed_satellite_catalog.py --allow-remote
    - `ACCESS_TOKEN_EXPIRE_MINUTES`: `1440` (24 hours)
    - `CORS_ORIGINS`: `https://your-frontend-domain.vercel.app,http://localhost:3000`
    - `OSRM_BASE_URL`: `https://router.project-osrm.org`
+   - `GEMINI_API_KEY`: Secret Google AI Studio API key for AI-assisted inventory extraction
+   - `GEMINI_MODEL`: `gemini-2.5-flash-lite`
+
+Because inventory extraction uses Google Gemini's multimodal API server-side,
+the backend does not require local neural network weights, heavy GPU/CPU OCR packages,
+or multi-gigabyte memory footprints.
 
 ---
 
@@ -101,8 +107,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libpq-dev \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

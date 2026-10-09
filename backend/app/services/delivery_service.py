@@ -6,9 +6,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
-from app.models.delivery import Delivery, DeliveryStatus, DeliveryTracking
+from app.models.delivery import Delivery, DeliveryRejection, DeliveryStatus, DeliveryTracking
 from app.models.delivery_partner import DeliveryPartner
-from app.models.order import Order, OrderStatus
+from app.models.order import Order, OrderItem, OrderStatus
+from app.models.product import Product
 from app.models.retailer import Retailer
 from app.models.store import Store
 from app.services.geo_service import calculate_distance_km, has_valid_coordinates, validate_coordinates
@@ -43,6 +44,23 @@ class DeliveryAssignmentResult:
 
 def get_partner_for_user(db: Session, user_id: int) -> Optional[DeliveryPartner]:
     return db.query(DeliveryPartner).filter(DeliveryPartner.user_id == user_id).first()
+
+
+def partner_capabilities(partner: DeliveryPartner) -> set[str]:
+    return {value.strip().upper() for value in (partner.capabilities or "NORMAL").split(",") if value.strip()}
+
+
+def required_capabilities_for_order(db: Session, order: Order) -> set[str]:
+    products = db.query(Product).join(OrderItem, OrderItem.product_id == Product.id).filter(OrderItem.order_id == order.id).all()
+    required = {"NORMAL"}
+    for product in products:
+        if product.requires_special_equipment:
+            required.add("FROZEN_BOX" if product.handling_type == "FROZEN" else product.handling_type)
+    return required
+
+
+def partner_can_fulfil_order(db: Session, partner: DeliveryPartner, order: Order) -> bool:
+    return required_capabilities_for_order(db, order).issubset(partner_capabilities(partner))
 
 
 def get_delivery_or_404(db: Session, delivery_id: int) -> Delivery:
@@ -90,7 +108,7 @@ def get_available_partners_for_order(db: Session, order_id: int) -> list[dict]:
     )
     results = []
     for partner in partners:
-        if not has_valid_coordinates(partner.current_lat, partner.current_lng):
+        if not has_valid_coordinates(partner.current_lat, partner.current_lng) or not partner_can_fulfil_order(db, partner, order):
             continue
         dist = calculate_distance_km(float(store.lat), float(store.lng), float(partner.current_lat), float(partner.current_lng))
         results.append({
@@ -106,16 +124,15 @@ def get_available_partners_for_order(db: Session, order_id: int) -> list[dict]:
 
 
 def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int] = None) -> DeliveryAssignmentResult:
-    order = db.query(Order).filter(Order.id == order_id).first()
+    # The order row lock makes the rider claim a compare-and-set operation on
+    # PostgreSQL: only the first rider can bind an unclaimed delivery.
+    order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     
-    # Auto-advance status to READY_FOR_PICKUP if order is accepted/preparing/received
-    if order.status in [OrderStatus.RECEIVED, OrderStatus.ACCEPTED, OrderStatus.PREPARING]:
-        order.status = OrderStatus.READY_FOR_PICKUP
-        db.flush()
-
-    if order.delivery:
+    if order.status != OrderStatus.READY_FOR_PICKUP:
+        return DeliveryAssignmentResult(False, reason="Only ready-for-pickup orders can be claimed")
+    if order.delivery and order.delivery.delivery_partner_id is not None:
         return DeliveryAssignmentResult(False, delivery=order.delivery, reason="Delivery already assigned")
 
     store = order.store
@@ -127,11 +144,13 @@ def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int
     distance: float = 0.5
 
     if partner_id is not None:
-        partner = db.query(DeliveryPartner).filter(DeliveryPartner.id == partner_id).first()
+        partner = db.query(DeliveryPartner).filter(DeliveryPartner.id == partner_id).with_for_update().first()
         if not partner:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Specified delivery partner not found")
         if not partner.is_available:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Specified delivery partner is unavailable")
+        if not partner_can_fulfil_order(db, partner, order):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Partner does not have the equipment required for this order")
         if partner.current_lat is not None and partner.current_lng is not None:
             distance = calculate_distance_km(float(store.lat), float(store.lng), float(partner.current_lat), float(partner.current_lng))
     else:
@@ -148,6 +167,8 @@ def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int
         for p in partners:
             if not has_valid_coordinates(p.current_lat, p.current_lng):
                 continue
+            if not partner_can_fulfil_order(db, p, order):
+                continue
             dist = calculate_distance_km(float(store.lat), float(store.lng), float(p.current_lat), float(p.current_lng))
             candidates.append((dist, p.id, p))
 
@@ -156,22 +177,44 @@ def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int
         else:
             distance, _, partner = sorted(candidates)[0]
 
-    delivery = Delivery(
-        order_id=order.id,
-        delivery_partner_id=partner.id,
-        status=DeliveryStatus.ASSIGNED,
-        pickup_address=store.address,
-        pickup_lat=store.lat,
-        pickup_lng=store.lng,
-        destination_address=order.delivery_address,
-        destination_lat=order.delivery_lat,
-        destination_lng=order.delivery_lng,
-    )
+    delivery = order.delivery
+    if delivery is None:
+        delivery = Delivery(
+            order_id=order.id,
+            delivery_partner_id=partner.id,
+            status=DeliveryStatus.ASSIGNED,
+            pickup_address=store.address,
+            pickup_lat=store.lat,
+            pickup_lng=store.lng,
+            destination_address=order.delivery_address,
+            destination_lat=order.delivery_lat,
+            destination_lng=order.delivery_lng,
+        )
+    else:
+        delivery.delivery_partner_id = partner.id
+        delivery.status = DeliveryStatus.ASSIGNED
+        delivery.assigned_at = datetime.utcnow()
     partner.is_available = False
     db.add(delivery)
     db.commit()
     db.refresh(delivery)
     return DeliveryAssignmentResult(True, delivery=delivery, distance_km=round(distance, 3))
+
+
+def reject_delivery_assignment(db: Session, delivery_id: int, partner: DeliveryPartner, reason: Optional[str] = None) -> Delivery:
+    delivery = db.query(Delivery).filter(Delivery.id == delivery_id).with_for_update().first()
+    if not delivery:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delivery not found")
+    if delivery.delivery_partner_id != partner.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this delivery")
+    if delivery.status != DeliveryStatus.ASSIGNED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only an unaccepted delivery can be rejected")
+    db.add(DeliveryRejection(delivery_id=delivery.id, delivery_partner_id=partner.id, reason=reason))
+    delivery.delivery_partner_id = None
+    partner.is_available = True
+    db.commit()
+    db.refresh(delivery)
+    return delivery
 
 
 def update_delivery_status(db: Session, delivery: Delivery, target_status: DeliveryStatus) -> Delivery:

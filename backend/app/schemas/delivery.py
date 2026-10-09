@@ -38,6 +38,10 @@ class DeliveryStatusUpdate(BaseModel):
     status: DeliveryStatus
 
 
+class DeliveryRejectRequest(BaseModel):
+    reason: Optional[str] = Field(None, max_length=500)
+
+
 class DeliveryLocationUpdate(BaseModel):
     latitude: float
     longitude: float

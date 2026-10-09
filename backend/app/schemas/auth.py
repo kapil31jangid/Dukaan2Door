@@ -16,6 +16,7 @@ class RegisterRequest(BaseModel):
     store_name: Optional[str] = None
     operating_hours: Optional[str] = None
     vehicle_info: Optional[str] = None
+    capabilities: Optional[str] = Field(None, max_length=500)
 
 
 class LoginRequest(BaseModel):

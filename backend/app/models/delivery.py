@@ -58,3 +58,13 @@ class DeliveryTracking(Base):
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     delivery = relationship("Delivery", back_populates="tracking_updates")
+
+
+class DeliveryRejection(Base):
+    __tablename__ = "delivery_rejections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    delivery_id: Mapped[int] = mapped_column(ForeignKey("deliveries.id"), nullable=False, index=True)
+    delivery_partner_id: Mapped[int] = mapped_column(ForeignKey("delivery_partners.id"), nullable=False, index=True)
+    reason: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

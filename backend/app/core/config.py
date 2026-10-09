@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Optional, Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,6 +14,28 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: Union[str, List[str]] = ["*"]
     OSRM_BASE_URL: str = "https://router.project-osrm.org"
+    PADDLE_OCR_DETECTION_MODEL: str = "PP-OCRv6_small_det"
+    PADDLE_OCR_RECOGNITION_MODEL: str = "PP-OCRv6_medium_rec"
+    PADDLE_OCR_CPU_THREADS: int = 4
+    PADDLE_OCR_MAX_IMAGE_SIDE: int = 1600
+    PADDLE_OCR_MAX_IMAGE_PIXELS: int = 25_000_000
+    PADDLE_OCR_MAX_PDF_PAGES: int = 10
+    PADDLE_OCR_LOW_CONFIDENCE: float = 0.70
+    PADDLE_OCR_COMPARE_PREPROCESSED: bool = False
+    PADDLE_OCR_USE_ORIENTATION: bool = False
+
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        """Use the PostgreSQL driver installed by this project for provider URLs."""
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+psycopg2://", 1)
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return value
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

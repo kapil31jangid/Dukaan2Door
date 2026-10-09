@@ -7,7 +7,9 @@ import { AppLayout } from './components/layout/AppLayout';
 
 // Auth Pages
 import { LoginPage } from './pages/auth/LoginPage';
+import { RoleLoginPage } from './pages/auth/RoleLoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
+import { PublicHomePage } from './pages/public/PublicHomePage';
 
 // Retailer Pages
 import { RetailerHomePage } from './pages/retailer/RetailerHomePage';
@@ -18,6 +20,7 @@ import { RetailerStoreOverviewPage } from './pages/retailer/RetailerStoreOvervie
 import { RetailerBusinessSettingsPage } from './pages/retailer/RetailerBusinessSettingsPage';
 import { RetailerPerformancePage } from './pages/retailer/RetailerPerformancePage';
 import { RetailerHelpPage } from './pages/retailer/RetailerHelpPage';
+import { RetailerInventoryPage } from './pages/retailer/RetailerInventoryPage';
 
 // Delivery Partner Pages
 import { DeliveryDashboard } from './pages/delivery/DeliveryDashboard';
@@ -55,7 +58,7 @@ const RootRedirect: React.FC = () => {
   }
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    return <PublicHomePage />;
   }
 
   if (role === 'retailer') {
@@ -81,6 +84,10 @@ export const App: React.FC = () => {
           <Routes>
             {/* Public / Auth */}
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/login/customer" element={<RoleLoginPage role="customer" />} />
+            <Route path="/login/retailer" element={<RoleLoginPage role="retailer" />} />
+            <Route path="/login/delivery" element={<RoleLoginPage role="delivery_partner" />} />
+            <Route path="/login/delivery_partner" element={<Navigate to="/login/delivery" replace />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/" element={<RootRedirect />} />
 
@@ -95,7 +102,7 @@ export const App: React.FC = () => {
             >
               <Route index element={<RetailerHomePage />} />
               <Route path="orders" element={<RetailerOrdersPage />} />
-              <Route path="inventory" element={<RetailerMenuPage />} />
+              <Route path="inventory" element={<RetailerInventoryPage />} />
               <Route path="menu" element={<RetailerMenuPage />} />
               <Route path="store" element={<RetailerStoreOverviewPage />} />
               <Route path="store/edit" element={<RetailerStorePage />} />

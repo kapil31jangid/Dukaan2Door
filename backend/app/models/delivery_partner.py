@@ -15,6 +15,7 @@ class DeliveryPartner(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(30))
     vehicle_info: Mapped[Optional[str]] = mapped_column(String(255))
+    capabilities: Mapped[str] = mapped_column(String(500), default="NORMAL", nullable=False)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     current_lat: Mapped[Optional[float]] = mapped_column(Float)
     current_lng: Mapped[Optional[float]] = mapped_column(Float)

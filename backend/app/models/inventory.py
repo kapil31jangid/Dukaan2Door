@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
+from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -14,6 +15,9 @@ class Inventory(Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), nullable=False, index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False, index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unit: Mapped[str] = mapped_column(String(60), default="unit", nullable=False)
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date)
+    low_stock_threshold: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

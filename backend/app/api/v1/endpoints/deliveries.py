@@ -9,6 +9,7 @@ from app.models.retailer import Retailer
 from app.schemas.delivery import (
     DeliveryAssignmentResponse,
     DeliveryLocationUpdate,
+    DeliveryRejectRequest,
     DeliveryResponse,
     DeliveryStatus,
     DeliveryStatusUpdate,
@@ -23,6 +24,7 @@ from app.services.delivery_service import (
     get_delivery_or_404,
     get_partner_for_user,
     record_location_update,
+    reject_delivery_assignment,
     update_delivery_status,
 )
 from app.services.geo_service import calculate_distance_km, has_valid_coordinates
@@ -68,7 +70,9 @@ def get_available_orders(
             float(partner.current_lat), float(partner.current_lng),
         )
         if distance <= 5:
-            available.append((distance, order))
+            from app.services.delivery_service import partner_can_fulfil_order
+            if partner_can_fulfil_order(db, partner, order):
+                available.append((distance, order))
 
     available.sort(key=lambda item: (item[0], item[1].created_at))
     return [_order_to_response(order) for _, order in available]
@@ -113,6 +117,25 @@ async def claim_available_order(
         {"delivery_id": result.delivery.id, "order_id": order_id, "status": result.delivery.status.value},
     )
     return response
+
+
+@router.post("/{delivery_id}/reject", response_model=DeliveryResponse, summary="Reject an unaccepted delivery claim")
+async def reject_delivery(
+    delivery_id: int,
+    payload: DeliveryRejectRequest,
+    current_user: UserContext = Depends(require_role(["delivery_partner"])),
+    db: Session = Depends(get_db),
+):
+    partner = get_partner_for_user(db, current_user.user_id)
+    if not partner:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delivery partner profile not found")
+    delivery = reject_delivery_assignment(db, delivery_id, partner, payload.reason)
+    await manager.broadcast(
+        delivery.id,
+        "delivery_available",
+        {"delivery_id": delivery.id, "order_id": delivery.order_id, "status": delivery.status.value},
+    )
+    return _delivery_response(delivery)
 
 
 @router.get(

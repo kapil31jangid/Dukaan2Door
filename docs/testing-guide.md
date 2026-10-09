@@ -25,6 +25,19 @@ source .venv/bin/activate
 uvicorn app.main:app --reload --port 8080
 ```
 
+Inventory image analysis runs through local, CPU-only PaddleOCR and requires no
+OCR API key. Use Python 3.11-3.13; the first analysis may take longer while the
+shared model downloads and initializes. Manual inventory entry remains
+available if local OCR is unavailable.
+
+If the existing virtual environment uses Python 3.14, recreate it with Python
+3.11-3.13. Alternatively, use the verified container:
+
+```bash
+podman build -t dukaan2door-backend backend
+podman run --rm --env-file backend/.env -p 8080:8080 dukaan2door-backend
+```
+
 Terminal 2, frontend:
 
 ```bash
@@ -80,6 +93,33 @@ RECEIVED
 ```
 
 The customer must not manually change order status.
+
+### Inventory image onboarding
+
+Log in with the retailer account and open `/retailer/inventory`.
+
+1. Select **Add Inventory**, then **Scan product or bill**.
+2. Upload a clear JPG, PNG, or PDF containing real product rows.
+3. Wait while the backend validates and processes the document with PaddleOCR.
+4. Verify detected name, size, quantity, unit, price, category, expiry, and
+   review warnings. Real PaddleOCR confidence is shown where available; every
+   uncertain or missing field must still be verified.
+5. Correct a value, remove one draft row, and optionally add a missed row.
+6. Before confirmation, refresh the inventory in another tab and verify no
+   detected draft has been written.
+7. Select **Confirm and add inventory** and verify only the reviewed rows are
+   saved. An exact existing product match must increase stock instead of
+   creating a duplicate.
+
+From the repository root, inspect OCR output and timing with the same backend
+pipeline:
+
+```bash
+python scripts/test_paddle_ocr.py /path/to/real-bill.jpg
+```
+
+Handwritten recognition is best effort. Any uncertain row must be corrected
+in review; OCR output is never added to inventory automatically.
 
 ### 2. Retailer: accept and prepare
 

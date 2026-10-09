@@ -1,6 +1,6 @@
 import { apiRequest, uploadFile } from './api';
 import { RetailerProfile, RetailerUpdate, StoreProfile, StoreUpdate } from '../types/user';
-import { Product, ProductAvailabilityPatch, ProductCreate, ProductUpdate } from '../types/product';
+import { InventoryAnalysisResponse, InventoryConfirmItem, Product, ProductAvailabilityPatch, ProductCreate, ProductUpdate } from '../types/product';
 import { Order, OrderStatus } from '../types/order';
 import { DeliveryAssignmentResponse } from '../types/delivery';
 
@@ -58,12 +58,19 @@ export const retailerService = {
     });
   },
 
-  async getOrders(statusFilter?: OrderStatus, page = 1, pageSize = 50): Promise<Order[]> {
+  async getOrders(
+    statusFilter?: OrderStatus,
+    page = 1,
+    pageSize = 50,
+    dateRange?: { createdFrom?: string; createdBefore?: string },
+  ): Promise<Order[]> {
     return apiRequest<Order[]>('/api/orders', {
       params: {
         status: statusFilter,
         page,
         page_size: pageSize,
+        created_from: dateRange?.createdFrom,
+        created_before: dateRange?.createdBefore,
       },
     });
   },
@@ -94,5 +101,19 @@ export const retailerService = {
     const form = new FormData();
     form.append('file', file);
     return uploadFile<{ url: string; filename: string }>('/api/uploads/product-image', form);
+  },
+
+  async analyzeInventoryImage(file: File): Promise<InventoryAnalysisResponse> {
+    const form = new FormData();
+    form.append('file', file);
+    return uploadFile<InventoryAnalysisResponse>('/api/retailer/inventory/analyze', form);
+  },
+
+  async confirmInventory(items: InventoryConfirmItem[], source: 'IMAGE_ASSISTED' | 'MANUAL'): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {
+    return apiRequest('/api/retailer/inventory/confirm', { method: 'POST', body: JSON.stringify({ items, source }) });
+  },
+
+  async addInventoryManually(items: InventoryConfirmItem[]): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {
+    return apiRequest('/api/retailer/inventory/manual', { method: 'POST', body: JSON.stringify({ items, source: 'MANUAL' }) });
   },
 };

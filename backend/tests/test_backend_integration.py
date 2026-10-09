@@ -65,6 +65,105 @@ def create_ready_order(client, customer_headers, retailer_headers, product_id, q
     return order_id
 
 
+def test_retailer_inventory_manual_confirmation_is_store_scoped_and_merges_exact_duplicates(client, retailer_headers):
+    first = client.post(
+        "/api/retailer/inventory/manual",
+        json={"items": [{"product_name": "Parle-G 250g", "brand": "Parle", "quantity": 15, "unit": "pack", "price": 10, "category": "Snacks & Packaged Foods", "handling_type": "NORMAL", "requires_special_equipment": False, "low_stock_threshold": 5}]},
+        headers=retailer_headers,
+    )
+    assert first.status_code == 201
+    assert first.json()[0]["created"] is True
+    assert first.json()[0]["quantity_after"] == 15
+
+    second = client.post(
+        "/api/retailer/inventory/manual",
+        json={"items": [{"product_name": "Parle-G 250g", "brand": "Parle", "quantity": 20, "unit": "pack", "price": 10, "category": "Snacks & Packaged Foods", "handling_type": "NORMAL", "requires_special_equipment": False, "low_stock_threshold": 5}]},
+        headers=retailer_headers,
+    )
+    assert second.status_code == 201
+    assert second.json()[0]["created"] is False
+    assert second.json()[0]["quantity_before"] == 15
+    assert second.json()[0]["quantity_after"] == 35
+
+    products = client.get("/api/retailers/me/products", headers=retailer_headers)
+    assert products.status_code == 200
+    assert len(products.json()) == 1
+    assert products.json()[0]["quantity"] == 35
+    history = client.get("/api/retailer/inventory/history", headers=retailer_headers)
+    assert history.status_code == 200
+    assert [row["delta"] for row in history.json()] == [20, 15]
+
+
+def test_inventory_onboarding_requires_retailer_role_and_configured_ocr(client, customer_headers):
+    unauthorized = client.post(
+        "/api/retailer/inventory/manual",
+        json={"items": [{"product_name": "Rice", "quantity": 1, "unit": "pack", "price": 50}]},
+        headers=customer_headers,
+    )
+    assert unauthorized.status_code == 403
+    no_ocr = client.post(
+        "/api/retailer/inventory/analyze",
+        files={"file": ("bill.png", b"not-a-real-image", "image/png")},
+        headers=customer_headers,
+    )
+    assert no_ocr.status_code == 403
+
+
+def test_inventory_image_analysis_returns_review_drafts_without_writing_stock(client, retailer_headers, monkeypatch):
+    from app.schemas.inventory import ExtractedInventoryItem
+    from app.services.ocr_service import OCRTextLine
+
+    def fake_analysis(self, content, filename, content_type):
+        return (
+            [ExtractedInventoryItem(product_name="Amul Milk", size="500ml", quantity=10, unit="pack", category="Dairy", handling_type="PERISHABLE", requires_special_equipment=False, confidence=0.8, warnings=["Price was not detected."])],
+            [OCRTextLine(text="Amul Milk 500ml qty 10", confidence=0.8, bounding_box=[], page_index=0, order=0)],
+        )
+
+    monkeypatch.setattr("app.api.v1.endpoints.inventory.InventoryImageAnalyzer.analyze_image", fake_analysis)
+    response = client.post(
+        "/api/retailer/inventory/analyze",
+        files={"file": ("bill.png", b"image", "image/png")},
+        headers=retailer_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["items"][0]["product_name"] == "Amul Milk"
+    assert response.json()["items"][0]["size"] == "500ml"
+    assert response.json()["provider"] in ("Gemini AI", "PaddleOCR")
+    assert client.get("/api/retailers/me/products", headers=retailer_headers).json() == []
+
+
+def test_rider_claim_is_locked_and_rejected_delivery_returns_to_the_pool(client, customer_headers, retailer_headers, seeded_product):
+    first_rider = auth_headers(client, "first-rider@example.com", "delivery_partner", "First Rider", lat=28.6151, lng=77.2101)
+    second_rider = auth_headers(client, "second-rider@example.com", "delivery_partner", "Second Rider", lat=28.6152, lng=77.2102)
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+
+    first_claim = client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=first_rider)
+    assert first_claim.status_code == 200
+    delivery_id = first_claim.json()["delivery"]["id"]
+    assert client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=second_rider).status_code == 409
+
+    rejected = client.post(f"/api/deliveries/{delivery_id}/reject", json={"reason": "Vehicle issue"}, headers=first_rider)
+    assert rejected.status_code == 200
+    assert rejected.json()["delivery_partner_id"] is None
+    assert client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=second_rider).status_code == 200
+
+
+def test_frozen_inventory_is_only_offered_to_capable_riders(client, customer_headers, retailer_headers):
+    frozen_product = client.post(
+        "/api/products",
+        json={"name": "Ice Cream", "category": "Frozen", "price": 90, "initial_stock": 5, "is_available": True, "handling_type": "FROZEN", "requires_special_equipment": True},
+        headers=retailer_headers,
+    ).json()
+    normal_rider = auth_headers(client, "normal-rider@example.com", "delivery_partner", "Normal Rider", lat=28.6151, lng=77.2101)
+    equipped_rider = auth_headers(client, "frozen-rider@example.com", "delivery_partner", "Frozen Rider", lat=28.6152, lng=77.2102, capabilities="NORMAL,FROZEN_BOX")
+    order_id = create_ready_order(client, customer_headers, retailer_headers, frozen_product["id"])
+
+    assert client.get("/api/deliveries/available-orders", headers=normal_rider).json() == []
+    available = client.get("/api/deliveries/available-orders", headers=equipped_rider)
+    assert available.status_code == 200
+    assert [order["id"] for order in available.json()] == [order_id]
+
+
 def test_geo_distance_same_coordinate_and_known_distance():
     assert calculate_distance_km(28.6139, 77.2090, 28.6139, 77.2090) == pytest.approx(0)
     delhi_to_noida = calculate_distance_km(28.6139, 77.2090, 28.5355, 77.3910)
@@ -700,3 +799,55 @@ def test_delivery_partner_acceptance_and_gps_accuracy(client, customer_headers, 
     tracking = client.get(f"/api/deliveries/{delivery_id}/tracking", headers=customer_headers)
     assert tracking.status_code == 200
     assert tracking.json()["updates"][-1]["accuracy_m"] == pytest.approx(7.25)
+
+
+def test_retailer_order_history_supports_daily_date_bounds(
+    client,
+    customer_headers,
+    retailer_headers,
+    seeded_product,
+):
+    created = client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": seeded_product["id"], "quantity": 1}],
+            "delivery_address": "Daily dashboard address",
+            "delivery_lat": 28.6139,
+            "delivery_lng": 77.2090,
+        },
+        headers=customer_headers,
+    )
+    assert created.status_code == 201
+    order_id = created.json()["id"]
+
+    matching = client.get(
+        "/api/orders",
+        params={
+            "created_from": "2000-01-01T00:00:00Z",
+            "created_before": "2100-01-01T00:00:00Z",
+        },
+        headers=retailer_headers,
+    )
+    assert matching.status_code == 200
+    assert order_id in {order["id"] for order in matching.json()}
+
+    future = client.get(
+        "/api/orders",
+        params={
+            "created_from": "2100-01-01T00:00:00Z",
+            "created_before": "2101-01-01T00:00:00Z",
+        },
+        headers=retailer_headers,
+    )
+    assert future.status_code == 200
+    assert future.json() == []
+
+    invalid = client.get(
+        "/api/orders",
+        params={
+            "created_from": "2026-10-09T00:00:00Z",
+            "created_before": "2026-10-08T00:00:00Z",
+        },
+        headers=retailer_headers,
+    )
+    assert invalid.status_code == 422

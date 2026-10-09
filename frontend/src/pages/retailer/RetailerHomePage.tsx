@@ -1,33 +1,193 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CheckCircle2, Clock3, PackageCheck, RefreshCw, ShoppingBag, TrendingUp } from 'lucide-react';
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock3,
+  Minus,
+  PackageCheck,
+  RefreshCw,
+  ShoppingBag,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { OrderDetailModal } from '../../components/retailer/OrderDetailModal';
+import { Alert } from '../../components/ui/Alert';
+import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { Spinner } from '../../components/ui/Spinner';
 import { retailerService } from '../../services/retailerService';
 import { Order, ORDER_STATUS_LABELS, OrderStatus } from '../../types/order';
 import { Product } from '../../types/product';
 import { StoreProfile } from '../../types/user';
-import { Button } from '../../components/ui/Button';
-import { Badge } from '../../components/ui/Badge';
-import { Alert } from '../../components/ui/Alert';
-import { Spinner } from '../../components/ui/Spinner';
-import { OrderDetailModal } from '../../components/retailer/OrderDetailModal';
 
-const statusVariant: Record<OrderStatus, 'default' | 'success' | 'warning' | 'danger' | 'info' | 'secondary'> = { RECEIVED: 'warning', ACCEPTED: 'info', PREPARING: 'secondary', READY_FOR_PICKUP: 'success', OUT_FOR_DELIVERY: 'info', DELIVERED: 'success', REJECTED: 'danger', CANCELLED: 'default' };
-const imageUrl = (product: Product) => product.image_url?.startsWith('http') ? product.image_url : product.image_url ? `${import.meta.env.VITE_API_URL || ''}${product.image_url}` : null;
+const statusVariant: Record<OrderStatus, 'default' | 'success' | 'warning' | 'danger' | 'info' | 'secondary'> = {
+  RECEIVED: 'warning',
+  ACCEPTED: 'info',
+  PREPARING: 'secondary',
+  READY_FOR_PICKUP: 'success',
+  OUT_FOR_DELIVERY: 'info',
+  DELIVERED: 'success',
+  REJECTED: 'danger',
+  CANCELLED: 'default',
+};
+
+const parseApiDate = (value: string) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value}Z`);
+const localDayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const imageUrl = (product?: Product) => product?.image_url?.startsWith('http')
+  ? product.image_url
+  : product?.image_url
+    ? `${import.meta.env.VITE_API_URL || ''}${product.image_url}`
+    : null;
+
+const compare = (current: number, previous: number) => {
+  if (current === previous) return { label: 'No change vs yesterday', tone: 'text-slate-500', Icon: Minus };
+  if (previous === 0) return { label: `${current} new vs yesterday`, tone: 'text-emerald-600', Icon: TrendingUp };
+  const percent = Math.round(((current - previous) / previous) * 100);
+  return percent > 0
+    ? { label: `+${percent}% vs yesterday`, tone: 'text-emerald-600', Icon: TrendingUp }
+    : { label: `${percent}% vs yesterday`, tone: 'text-rose-600', Icon: TrendingDown };
+};
 
 export const RetailerHomePage: React.FC = () => {
   const navigate = useNavigate();
-  const [store, setStore] = useState<StoreProfile | null>(null); const [orders, setOrders] = useState<Order[]>([]); const [products, setProducts] = useState<Product[]>([]); const [isLoading, setIsLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const load = async (showLoading = true) => { if (showLoading) setIsLoading(true); try { const [storeData, orderData, productData] = await Promise.all([retailerService.getStore(), retailerService.getOrders(undefined, 1, 50), retailerService.getProducts()]); setStore(storeData); setOrders(orderData); setProducts(productData); setError(null); } catch (err: any) { setError(err.message || 'Unable to load the merchant dashboard.'); } finally { setIsLoading(false); } };
-  useEffect(() => { void load(); const timer = window.setInterval(() => void load(false), 10000); return () => window.clearInterval(timer); }, []);
-  const updateStatus = async (orderId: number, status: OrderStatus) => { try { const updated = await retailerService.updateOrderStatus(orderId, status); setOrders((current) => current.map((order) => order.id === orderId ? updated : order)); setSelectedOrder(updated); } catch (err: any) { setError(err.message || 'Unable to update the order.'); } };
-  const delivered = orders.filter((order) => order.status === 'DELIVERED'); const pending = orders.filter((order) => ['RECEIVED', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP'].includes(order.status)); const preparing = orders.filter((order) => ['ACCEPTED', 'PREPARING'].includes(order.status)); const ready = orders.filter((order) => order.status === 'READY_FOR_PICKUP'); const revenue = delivered.reduce((sum, order) => sum + order.total_amount, 0); const recent = useMemo(() => orders.slice(0, 5), [orders]); const topProducts = useMemo(() => products.slice(0, 4), [products]);
+  const [store, setStore] = useState<StoreProfile | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  const load = async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
+    const now = new Date();
+    const yesterday = startOfLocalDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+    const tomorrow = startOfLocalDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+    try {
+      const [storeData, dailyOrders, recent, productData] = await Promise.all([
+        retailerService.getStore(),
+        retailerService.getOrders(undefined, 1, 100, {
+          createdFrom: yesterday.toISOString(),
+          createdBefore: tomorrow.toISOString(),
+        }),
+        retailerService.getOrders(undefined, 1, 5),
+        retailerService.getProducts(),
+      ]);
+      setStore(storeData);
+      setOrders(dailyOrders);
+      setRecentOrders(recent);
+      setProducts(productData);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Unable to load the merchant dashboard.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(false), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const updateStatus = async (orderId: number, status: OrderStatus) => {
+    try {
+      const updated = await retailerService.updateOrderStatus(orderId, status);
+      setOrders((current) => current.map((order) => order.id === orderId ? updated : order));
+      setRecentOrders((current) => current.map((order) => order.id === orderId ? updated : order));
+      setSelectedOrder(updated);
+    } catch (err: any) {
+      setError(err.message || 'Unable to update the order.');
+    }
+  };
+
+  const now = new Date();
+  const todayKey = localDayKey(now);
+  const yesterdayKey = localDayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const todayOrders = useMemo(
+    () => orders.filter((order) => localDayKey(parseApiDate(order.created_at)) === todayKey),
+    [orders, todayKey],
+  );
+  const yesterdayOrders = useMemo(
+    () => orders.filter((order) => localDayKey(parseApiDate(order.created_at)) === yesterdayKey),
+    [orders, yesterdayKey],
+  );
+  const statuses = (source: Order[], values: OrderStatus[]) => source.filter((order) => values.includes(order.status));
+  const pendingStatuses: OrderStatus[] = ['RECEIVED', 'ACCEPTED', 'PREPARING', 'READY_FOR_PICKUP'];
+  const todayDelivered = statuses(todayOrders, ['DELIVERED']);
+  const todayPending = statuses(todayOrders, pendingStatuses);
+  const todayPreparing = statuses(todayOrders, ['ACCEPTED', 'PREPARING']);
+  const todayReady = statuses(todayOrders, ['READY_FOR_PICKUP']);
+  const yesterdayPending = statuses(yesterdayOrders, pendingStatuses);
+  const yesterdayPreparing = statuses(yesterdayOrders, ['ACCEPTED', 'PREPARING']);
+  const yesterdayReady = statuses(yesterdayOrders, ['READY_FOR_PICKUP']);
+  const revenue = todayDelivered.reduce((sum, order) => sum + order.total_amount, 0);
+
+  const hourlySales = useMemo(() => {
+    const buckets = Array.from({ length: 8 }, () => 0);
+    todayDelivered.forEach((order) => {
+      buckets[Math.min(7, Math.floor(parseApiDate(order.created_at).getHours() / 3))] += order.total_amount;
+    });
+    return buckets;
+  }, [todayDelivered]);
+  const maxHourlySales = Math.max(...hourlySales, 1);
+
+  const topProducts = useMemo(() => {
+    const totals = new Map<number, { productId: number; name: string; quantity: number; revenue: number }>();
+    todayDelivered.forEach((order) => order.items.forEach((item) => {
+      const current = totals.get(item.product_id) || {
+        productId: item.product_id,
+        name: item.product_name,
+        quantity: 0,
+        revenue: 0,
+      };
+      current.quantity += item.quantity;
+      current.revenue += item.subtotal;
+      totals.set(item.product_id, current);
+    }));
+    return Array.from(totals.values()).sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue).slice(0, 4);
+  }, [todayDelivered]);
+
+  const metrics = [
+    { Icon: ShoppingBag, label: "Today's Orders", value: todayOrders.length, previous: yesterdayOrders.length },
+    { Icon: Clock3, label: 'Pending', value: todayPending.length, previous: yesterdayPending.length },
+    { Icon: PackageCheck, label: 'Preparing', value: todayPreparing.length, previous: yesterdayPreparing.length },
+    { Icon: CheckCircle2, label: 'Ready for Pickup', value: todayReady.length, previous: yesterdayReady.length },
+  ];
+  const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
+
   if (isLoading && !store) return <Spinner size="lg" label="Loading merchant dashboard..." />;
+
   return <div className="space-y-5">
-    <div className="flex items-start justify-between gap-4"><div><h1 className="text-2xl font-extrabold tracking-tight">Good morning, Retailer! <span aria-hidden="true">👋</span></h1><p className="mt-1 text-sm text-slate-500">Here&apos;s what&apos;s happening with your store today.</p></div><Button variant="outline" size="sm" onClick={() => void load()} leftIcon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button></div>
+    <div className="flex items-start justify-between gap-4">
+      <div><h1 className="text-2xl font-extrabold tracking-tight">{greeting}, Retailer!</h1><p className="mt-1 text-sm text-slate-500">Here&apos;s what&apos;s happening with your store today.</p></div>
+      <Button variant="outline" size="sm" onClick={() => void load()} leftIcon={<RefreshCw className="h-3.5 w-3.5" />}>Refresh</Button>
+    </div>
     {error && <Alert variant="error" onDismiss={() => setError(null)}>{error}</Alert>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[[ShoppingBag, 'Total Orders', orders.length, '+12%'], [Clock3, 'Pending', pending.length, '+2%'], [PackageCheck, 'Preparing', preparing.length, '+8%'], [CheckCircle2, 'Ready for Pickup', ready.length, '+32%']].map(([Icon, label, value, change]) => { const MetricIcon = Icon as typeof ShoppingBag; return <div key={String(label)} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between"><div><p className="text-[11px] font-bold text-slate-500">{label as string}</p><p className="mt-2 text-xl font-black">{value as number}</p><p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-600"><TrendingUp className="h-3 w-3" />{change as string} vs yesterday</p></div><MetricIcon className="h-4 w-4 text-red-500" /></div></div>; })}</div>
-    <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]"><section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-sm font-extrabold">Today&apos;s Sales</h2><p className="mt-2 text-2xl font-black">₹{revenue.toFixed(0)}</p><p className="mt-1 text-[10px] font-bold text-emerald-600">{delivered.length} completed orders</p></div><span className="rounded-lg bg-red-50 p-2 text-red-500"><TrendingUp className="h-4 w-4" /></span></div><div className="mt-4 flex h-32 items-end gap-2 border-b border-l border-slate-200 px-3">{[34, 48, 42, 62, 51, 76, 91].map((height, index) => <div key={index} className="flex h-full flex-1 items-end"><div className="w-full rounded-t bg-red-500/80" style={{ height: `${height}%` }} /></div>)}</div><div className="mt-2 flex justify-between text-[9px] font-semibold text-slate-400"><span>9 AM</span><span>12 PM</span><span>3 PM</span><span>6 PM</span><span>9 PM</span></div></section><section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><h2 className="text-sm font-extrabold">Top Selling Products</h2><button onClick={() => navigate('/retailer/menu')} className="text-[10px] font-bold text-red-600">View Menu</button></div><div className="mt-3 divide-y divide-slate-100">{topProducts.length ? topProducts.map((product) => <div key={product.id} className="flex items-center gap-3 py-2"><div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-md bg-slate-100">{imageUrl(product) ? <img src={imageUrl(product) || ''} alt="" className="h-full w-full object-cover" /> : <ShoppingBag className="h-4 w-4 text-red-400" />}</div><p className="min-w-0 flex-1 truncate text-xs font-bold">{product.name}</p><span className="text-[10px] text-slate-400">{product.quantity} in stock</span></div>) : <p className="py-8 text-center text-xs text-slate-400">No catalog products yet.</p>}</div></section></div>
-    <section className="rounded-lg border border-slate-200 bg-white shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><div><h2 className="text-sm font-extrabold">Recent Orders</h2><p className="mt-1 text-[10px] text-slate-500">Manage and track your latest customer orders.</p></div><button onClick={() => navigate('/retailer/orders')} className="flex items-center gap-1 text-[10px] font-bold text-red-600">View All Orders <ArrowRight className="h-3 w-3" /></button></div>{recent.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders received yet.</div> : <div className="overflow-x-auto"><table className="min-w-full text-[11px]"><thead className="bg-slate-50 text-left font-bold text-slate-500"><tr><th className="px-4 py-2.5">Order</th><th className="px-4 py-2.5">Customer</th><th className="px-4 py-2.5">Items</th><th className="px-4 py-2.5">Amount</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{recent.map((order) => <tr key={order.id} className="hover:bg-slate-50/70"><td className="px-4 py-3 font-extrabold">#{order.id}<span className="mt-0.5 block text-[9px] font-normal text-slate-400">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></td><td className="px-4 py-3 font-semibold text-slate-700">Customer #{order.customer_id}</td><td className="px-4 py-3 text-slate-500">{order.items.length} items</td><td className="px-4 py-3 font-bold">₹{order.total_amount.toFixed(0)}</td><td className="px-4 py-3"><Badge variant={statusVariant[order.status]} size="sm">{ORDER_STATUS_LABELS[order.status]}</Badge></td><td className="px-4 py-3 text-right"><button onClick={() => setSelectedOrder(order)} className="rounded-md border border-slate-200 px-2.5 py-1 font-bold text-slate-600 hover:border-red-200 hover:text-red-600">View</button></td></tr>)}</tbody></table></div>}</section>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {metrics.map(({ Icon, label, value, previous }) => {
+        const change = compare(value, previous);
+        return <div key={label} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between"><div><p className="text-[11px] font-bold text-slate-500">{label}</p><p className="mt-2 text-xl font-black">{value}</p><p className={`mt-1 flex items-center gap-1 text-[10px] font-bold ${change.tone}`}><change.Icon className="h-3 w-3" />{change.label}</p></div><Icon className="h-4 w-4 text-red-500" /></div></div>;
+      })}
+    </div>
+    <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between"><div><h2 className="text-sm font-extrabold">Today&apos;s Sales</h2><p className="mt-2 text-2xl font-black">₹{revenue.toFixed(0)}</p><p className="mt-1 text-[10px] font-bold text-emerald-600">{todayDelivered.length} completed orders</p></div><span className="rounded-lg bg-red-50 p-2 text-red-500"><TrendingUp className="h-4 w-4" /></span></div>
+        <div className="mt-4 flex h-32 items-end gap-2 border-b border-l border-slate-200 px-3">{hourlySales.map((value, index) => <div key={index} className="flex h-full flex-1 items-end" title={`₹${value.toFixed(0)}`}><div className="w-full rounded-t bg-red-500/80" style={{ height: `${value ? Math.max((value / maxHourlySales) * 92, 8) : 2}%` }} /></div>)}</div>
+        <div className="mt-2 grid grid-cols-8 text-center text-[9px] font-semibold text-slate-400">{['12a', '3a', '6a', '9a', '12p', '3p', '6p', '9p'].map((label) => <span key={label}>{label}</span>)}</div>
+      </section>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between"><h2 className="text-sm font-extrabold">Today&apos;s Top Products</h2><button onClick={() => navigate('/retailer/menu')} className="text-[10px] font-bold text-red-600">View Menu</button></div>
+        <div className="mt-3 divide-y divide-slate-100">{topProducts.length ? topProducts.map((item) => { const product = products.find((candidate) => candidate.id === item.productId); const src = imageUrl(product); return <div key={item.productId} className="flex items-center gap-3 py-2"><div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-md bg-slate-100">{src ? <img src={src} alt="" className="h-full w-full object-cover" /> : <ShoppingBag className="h-4 w-4 text-red-400" />}</div><p className="min-w-0 flex-1 truncate text-xs font-bold">{item.name}</p><span className="text-[10px] text-slate-500">{item.quantity} sold · ₹{item.revenue.toFixed(0)}</span></div>; }) : <p className="py-8 text-center text-xs text-slate-400">No completed product sales today.</p>}</div>
+      </section>
+    </div>
+    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><div><h2 className="text-sm font-extrabold">Recent Orders</h2><p className="mt-1 text-[10px] text-slate-500">Latest orders across all dates.</p></div><button onClick={() => navigate('/retailer/orders')} className="flex items-center gap-1 text-[10px] font-bold text-red-600">View All Orders <ArrowRight className="h-3 w-3" /></button></div>
+      {recentOrders.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders received yet.</div> : <div className="overflow-x-auto"><table className="min-w-full text-[11px]"><thead className="bg-slate-50 text-left font-bold text-slate-500"><tr><th className="px-4 py-2.5">Order</th><th className="px-4 py-2.5">Customer</th><th className="px-4 py-2.5">Items</th><th className="px-4 py-2.5">Amount</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5 text-right">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{recentOrders.map((order) => <tr key={order.id} className="hover:bg-slate-50/70"><td className="px-4 py-3 font-extrabold">#{order.id}<span className="mt-0.5 block text-[9px] font-normal text-slate-400">{parseApiDate(order.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></td><td className="px-4 py-3 font-semibold text-slate-700">Customer #{order.customer_id}</td><td className="px-4 py-3 text-slate-500">{order.items.length} items</td><td className="px-4 py-3 font-bold">₹{order.total_amount.toFixed(0)}</td><td className="px-4 py-3"><Badge variant={statusVariant[order.status]} size="sm">{ORDER_STATUS_LABELS[order.status]}</Badge></td><td className="px-4 py-3 text-right"><button onClick={() => setSelectedOrder(order)} className="rounded-md border border-slate-200 px-2.5 py-1 font-bold text-slate-600 hover:border-red-200 hover:text-red-600">View</button></td></tr>)}</tbody></table></div>}
+    </section>
     <OrderDetailModal order={selectedOrder} isOpen={!!selectedOrder} onClose={() => setSelectedOrder(null)} onUpdateStatus={updateStatus} />
   </div>;
 };

@@ -8,6 +8,7 @@ const navigation = [
   { to: '/retailer', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/retailer/orders', label: 'Orders', icon: ClipboardList },
   { to: '/retailer/menu', label: 'Menu', icon: Package },
+  { to: '/retailer/inventory', label: 'Inventory', icon: Package },
   { to: '/retailer/store', label: 'Store', icon: Store },
   { to: '/retailer/settings', label: 'Business Settings', icon: Settings },
   { to: '/retailer/performance', label: 'Performance', icon: TrendingUp },

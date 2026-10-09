@@ -1,0 +1,199 @@
+{
+  "cases": [
+    {
+      "name": "1. Clean generated receipt",
+      "category": "clean-generated",
+      "file": "images/01_clean_receipt.png",
+      "expected": [
+        {
+          "product_name": "Amul Taaza Milk",
+          "quantity": 10,
+          "price": 28.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Parle-G",
+          "quantity": 15,
+          "price": 10.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Fortune Sunflower Oil",
+          "quantity": 2,
+          "price": 165.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "2. Real printed kirana receipt",
+      "category": "printed-kirana-bill",
+      "file": "images/02_printed_kirana_receipt.png",
+      "expected": [
+        {
+          "product_name": "Tata Salt",
+          "quantity": 4,
+          "price": 28.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Maggi",
+          "quantity": 12,
+          "price": 14.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Surf Excel",
+          "quantity": 1,
+          "price": 140.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "3. Phone photo of receipt",
+      "category": "phone-photo",
+      "file": "images/03_phone_photo_receipt.png",
+      "expected": [
+        {
+          "product_name": "Aashirvaad Atta",
+          "quantity": 1,
+          "price": 380.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "MDH Haldi",
+          "quantity": 2,
+          "price": 35.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "4. Rotated/angled bill",
+      "category": "rotated-angled",
+      "file": "images/04_rotated_bill.png",
+      "expected": [
+        {
+          "product_name": "Dettol Soap",
+          "quantity": 5,
+          "price": 40.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Colgate MaxFresh",
+          "quantity": 3,
+          "price": 95.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "5. Low-light bill",
+      "category": "low-light",
+      "file": "images/05_low_light_bill.png",
+      "expected": [
+        {
+          "product_name": "Good Day Cashew",
+          "quantity": 6,
+          "price": 30.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Coca Cola",
+          "quantity": 4,
+          "price": 45.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "6. Neat handwritten inventory",
+      "category": "handwriting-neat",
+      "file": "images/06_neat_handwriting.png",
+      "expected": [
+        {
+          "product_name": "Amul Milk",
+          "quantity": 10,
+          "price": 28.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Sugar",
+          "quantity": 5,
+          "price": 45.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Tea Red Label",
+          "quantity": 4,
+          "price": 130.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "7. Average handwriting with abbreviations",
+      "category": "handwriting-average",
+      "file": "images/07_average_handwriting.png",
+      "expected": [
+        {
+          "product_name": "Amul Milk",
+          "quantity": 12,
+          "price": 28.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Parle-G",
+          "quantity": 8,
+          "price": 10.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Surf Excel",
+          "quantity": 3,
+          "price": 75.0,
+          "needs_review": false
+        }
+      ]
+    },
+    {
+      "name": "8. Bad handwriting with ambiguous numbers",
+      "category": "handwriting-poor",
+      "file": "images/08_bad_handwriting.png",
+      "expected": [
+        {
+          "product_name": "Maggi",
+          "quantity": null,
+          "price": 14.0,
+          "needs_review": true
+        },
+        {
+          "product_name": "Besan",
+          "quantity": 2,
+          "price": null,
+          "needs_review": true
+        }
+      ]
+    },
+    {
+      "name": "9. Mixed printed + handwritten bill",
+      "category": "mixed-bill",
+      "file": "images/09_mixed_bill.png",
+      "expected": [
+        {
+          "product_name": "Amul Butter",
+          "quantity": 4,
+          "price": 58.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Ghee",
+          "quantity": 2,
+          "price": 320.0,
+          "needs_review": false
+        }
+      ]
+    }
+  ]
+}

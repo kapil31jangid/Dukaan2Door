@@ -4,6 +4,7 @@ from app.api.v1.endpoints import (
     auth,
     customers,
     deliveries,
+    inventory,
     delivery_partners,
     matching,
     orders,
@@ -20,6 +21,7 @@ api_router.include_router(customers.router)
 api_router.include_router(retailers.router)
 api_router.include_router(delivery_partners.router)
 api_router.include_router(products.router)
+api_router.include_router(inventory.router)
 api_router.include_router(matching.router)
 api_router.include_router(orders.router)
 api_router.include_router(deliveries.router)

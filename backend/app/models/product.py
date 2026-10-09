@@ -13,10 +13,13 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    brand: Mapped[Optional[str]] = mapped_column(String(120), index=True)
     description: Mapped[Optional[str]] = mapped_column(String(1000))
     category: Mapped[Optional[str]] = mapped_column(String(120), index=True)
     price: Mapped[float] = mapped_column(Float, nullable=False)
     image_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    handling_type: Mapped[str] = mapped_column(String(30), default="NORMAL", nullable=False)
+    requires_special_equipment: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -1,23 +1,29 @@
 {
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
   "include": [
     "backend",
     "scripts"
   ],
   "extraPaths": [
-    "backend"
+    "backend",
+    "backend/.venv/lib/python3.11/site-packages"
   ],
   "executionEnvironments": [
     {
       "root": "scripts",
       "extraPaths": [
         "../backend",
-        "backend"
+        "backend",
+        "backend/.venv/lib/python3.11/site-packages"
       ]
     },
     {
       "root": "backend",
       "extraPaths": [
-        "."
+        ".",
+        ".venv/lib/python3.11/site-packages"
       ]
     }
   ]

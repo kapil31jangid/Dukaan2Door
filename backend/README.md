@@ -53,12 +53,15 @@ GET /health
 Recommended Render Web Service settings:
 
 - **Root Directory**: `backend`
-- **Environment**: Python
-- **Build Command**: `pip install -r requirements.txt`
+- **Environment**: Docker preferred; otherwise pin Python 3.11-3.13
+- **Build Command**: `pip install -r requirements.txt && python scripts/cache_paddle_models.py`
+- **Pre-deploy Command**: `python -m alembic upgrade head`
 - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - **Database**: Neon PostgreSQL through `DATABASE_URL`
 
 Render supplies `PORT` at runtime. Do not hardcode the production port.
+PaddleOCR runs locally and requires no OCR API key. Use one worker and at least
+1 GiB RAM (2 GiB preferred); the measured OCR process reached about 733 MiB RSS.
 
 ## Integrated Backend Architecture
 

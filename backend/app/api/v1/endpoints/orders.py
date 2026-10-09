@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import false
@@ -8,6 +9,7 @@ from app.models.customer import Customer
 from app.models.delivery import Delivery, DeliveryStatus as ModelDeliveryStatus
 from app.models.delivery_partner import DeliveryPartner
 from app.models.inventory import Inventory
+from app.models.inventory_adjustment import InventoryAdjustment
 from app.models.order import Order, OrderItem, OrderStatus as ModelOrderStatus
 from app.models.product import Product
 from app.models.retailer import Retailer
@@ -35,6 +37,12 @@ def _schema_status(model_status: ModelOrderStatus) -> OrderStatus:
 
 def _model_status(schema_status: OrderStatus) -> ModelOrderStatus:
     return ModelOrderStatus(schema_status.value)
+
+
+def _utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _order_to_response(order: Order) -> OrderResponse:
@@ -207,6 +215,17 @@ def create_order(
             total_amount += subtotal
             inventory.quantity -= quantity
             db.add(
+                InventoryAdjustment(
+                    inventory_id=inventory.id,
+                    store_id=store_id,
+                    product_id=product.id,
+                    delta=-quantity,
+                    quantity_after=inventory.quantity,
+                    source="ORDER",
+                    note=f"Order #{order.id}",
+                )
+            )
+            db.add(
                 OrderItem(
                     order_id=order.id,
                     product_id=product.id,
@@ -235,6 +254,8 @@ def create_order(
 )
 def get_order_history(
     status_filter: Optional[OrderStatus] = Query(None, alias="status"),
+    created_from: Optional[datetime] = Query(None),
+    created_before: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: UserContext = Depends(get_current_user),
@@ -259,6 +280,18 @@ def get_order_history(
 
     if status_filter:
         query = query.filter(Order.status == _model_status(status_filter))
+
+    start = _utc_naive(created_from) if created_from else None
+    end = _utc_naive(created_before) if created_before else None
+    if start and end and end <= start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="created_before must be later than created_from",
+        )
+    if start:
+        query = query.filter(Order.created_at >= start)
+    if end:
+        query = query.filter(Order.created_at < end)
 
     orders = query.order_by(Order.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return [_order_to_response(order) for order in orders]

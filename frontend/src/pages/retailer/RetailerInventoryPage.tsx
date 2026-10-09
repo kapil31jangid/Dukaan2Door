@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
 import { ProductModal } from '../../components/retailer/ProductModal';
+import { InventoryOnboardingModal } from '../../components/retailer/InventoryOnboardingModal';
 import {
   Plus,
   Search,
@@ -32,6 +33,7 @@ export const RetailerInventoryPage: React.FC = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [editingStockId, setEditingStockId] = useState<number | null>(null);
   const [stockInput, setStockInput] = useState<number>(0);
 
@@ -158,13 +160,21 @@ export const RetailerInventoryPage: React.FC = () => {
         <Button
           variant="primary"
           size="sm"
+          onClick={() => setIsOnboardingOpen(true)}
+          leftIcon={<Plus className="w-4 h-4" />}
+        >
+          Add Inventory
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => {
             setSelectedProduct(null);
             setIsModalOpen(true);
           }}
           leftIcon={<Plus className="w-4 h-4" />}
         >
-          Add Product
+          Add product manually
         </Button>
       </PageHeader>
 
@@ -252,6 +262,7 @@ export const RetailerInventoryPage: React.FC = () => {
                     <th className="px-5 py-3 text-left">Category</th>
                     <th className="px-5 py-3 text-right">Unit Price</th>
                     <th className="px-5 py-3 text-center">Stock Count</th>
+                    <th className="px-5 py-3 text-left">Handling</th>
                     <th className="px-5 py-3 text-center">Availability</th>
                     <th className="px-5 py-3 text-right">Actions</th>
                   </tr>
@@ -334,10 +345,11 @@ export const RetailerInventoryPage: React.FC = () => {
                             }`}
                             title="Click to edit stock"
                           >
-                            {product.quantity} units
+                            {product.quantity} {product.unit}
                           </button>
                         )}
                       </td>
+                      <td className="px-5 py-3.5"><span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${product.handling_type === 'FROZEN' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{product.handling_type}{product.requires_special_equipment ? ' equipment' : ''}</span>{product.quantity <= product.low_stock_threshold && <p className="mt-1 text-[10px] font-bold text-amber-700">Low stock</p>}</td>
                       <td className="px-5 py-3.5 text-center">
                         <button
                           onClick={() => handleToggleAvailability(product)}
@@ -451,7 +463,12 @@ export const RetailerInventoryPage: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveProduct}
       />
+      <InventoryOnboardingModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        products={products}
+        onConfirmed={(count) => { setNotice(`${count} product${count === 1 ? '' : 's'} added to inventory`); void fetchProducts(); }}
+      />
     </div>
   );
 };
-

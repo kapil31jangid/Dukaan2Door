@@ -36,10 +36,13 @@ def create_product(
     product = Product(
         store_id=store.id,
         name=payload.name,
+        brand=payload.brand,
         description=payload.description,
         category=payload.category,
         price=payload.price,
         image_url=payload.image_url,
+        handling_type=payload.handling_type,
+        requires_special_equipment=payload.requires_special_equipment,
     )
     db.add(product)
     db.flush()
