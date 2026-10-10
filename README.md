@@ -28,7 +28,7 @@ Delivery partner self-claim · OSRM route planning · Real-time live tracking
 - [Overview](#overview)
 - [Core Workflow](#core-workflow)
 - [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
+- [Technology Stack &amp; Component Breakdown](#-technology-stack--component-breakdown)
 - [Project Structure](#project-structure)
 - [Features by Portal](#features-by-portal)
   - [Customer Portal](#-customer-portal)
@@ -178,25 +178,44 @@ flowchart TB
     Customer -.->|"IP Fallback"| IPGeo
 ```
 
+Explore the full runtime view in the
+[interactive Dukaan2Door architecture diagram](docs/dukaan2door-architecture.html).
+
 ---
 
-## Technology Stack
+## 🛠️ Technology Stack & Component Breakdown
 
-| Layer | Technology |
-|---|---|
-| **Frontend Framework** | React 18, TypeScript, Vite |
-| **Styling** | Tailwind CSS, Lucide Icons |
-| **Maps & Geo** | Mapbox GL JS, GeoJSON route layers, browser geolocation |
-| **State Management** | React Context API |
-| **Backend API** | Python 3.11-3.13, FastAPI, Pydantic v2 |
-| **Database** | PostgreSQL on [Neon](https://neon.tech/), SQLAlchemy ORM |
-| **Migrations** | Alembic |
-| **Authentication** | JWT tokens, bcrypt password hashing, role-based authorization |
-| **Routing Engine** | OSRM (Open Source Routing Machine) |
-| **Inventory analysis** | Google Gemini structured extraction with optional local PaddleOCR/PaddlePaddle fallback |
-| **Geocoding** | Nominatim (reverse), ipwho.is (IP fallback) |
-| **Real-time** | FastAPI WebSockets, in-memory connection manager |
-| **Deployment** | Render web service + Neon PostgreSQL |
+```text
++-----------------------------------------------------------------------------------------+
+|                                    TECHNOLOGY STACK                                     |
++---------------------+-----------------------------+-------------------------------------+
+| CATEGORY            | ACTIVE WORKING DEPLOYMENT   | CORE RESPONSIBILITY                 |
++---------------------+-----------------------------+-------------------------------------+
+| Frontend            | React 18, TypeScript, Vite, | Customer, retailer, and delivery    |
+|                     | Tailwind CSS, Lucide Icons  | partner role-specific portals       |
++---------------------+-----------------------------+-------------------------------------+
+| Backend API         | Python 3.11, FastAPI,       | REST APIs, validation, business     |
+|                     | Pydantic v2, SQLAlchemy     | workflows, and authorization        |
++---------------------+-----------------------------+-------------------------------------+
+| Database            | PostgreSQL on Neon,         | Operational state, store inventory, |
+|                     | SQLAlchemy ORM, Alembic     | orders, tracking, and audit history |
++---------------------+-----------------------------+-------------------------------------+
+| Inventory AI        | Gemini extraction,          | Review-only product extraction with |
+|                     | optional PaddleOCR fallback | mandatory retailer confirmation     |
++---------------------+-----------------------------+-------------------------------------+
+| Maps & Routing      | Mapbox GL JS, GeoJSON,      | Location selection, road routes,    |
+|                     | browser GPS, OSRM           | distance, ETA, and live map display |
++---------------------+-----------------------------+-------------------------------------+
+| Real-Time           | FastAPI WebSockets,         | Authenticated delivery location and |
+|                     | persisted tracking recovery | order-status event broadcasting     |
++---------------------+-----------------------------+-------------------------------------+
+| Authentication      | JWT bearer tokens, bcrypt,  | Role and resource-level access for  |
+|                     | role-based authorization    | customers, retailers, and riders    |
++---------------------+-----------------------------+-------------------------------------+
+| Deployment          | Render API, Neon database,  | Cloud runtime, managed data, and    |
+|                     | Vite static frontend        | production frontend delivery        |
++---------------------+-----------------------------+-------------------------------------+
+```
 
 ---
 
