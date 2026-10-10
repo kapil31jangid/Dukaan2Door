@@ -3,13 +3,32 @@ import { DeliveryPartnerProfile, DeliveryPartnerUpdate } from '../types/user';
 import {
   Delivery,
   DeliveryStatus,
+  DeliveryLocationSource,
   DeliveryTrackingListResponse,
   DeliveryTrackingPoint,
   RouteResponse,
 } from '../types/delivery';
 import { Order, OrderStatus } from '../types/order';
 
+type TrackingPointWire = DeliveryTrackingPoint & {
+  lat?: number;
+  lng?: number;
+};
+
+function normalizeTrackingPoint(point: TrackingPointWire): DeliveryTrackingPoint {
+  return {
+    ...point,
+    latitude: point.latitude ?? point.lat as number,
+    longitude: point.longitude ?? point.lng as number,
+  };
+}
+
 export const deliveryService = {
+  async rejectDelivery(deliveryId: number): Promise<Delivery> {
+    return apiRequest<Delivery>(`/api/deliveries/${deliveryId}/reject`, {
+      method: 'POST', body: JSON.stringify({ reason: 'Declined by delivery partner' }),
+    });
+  },
   async getProfile(): Promise<DeliveryPartnerProfile> {
     return apiRequest<DeliveryPartnerProfile>('/api/delivery-partners/me');
   },
@@ -56,20 +75,25 @@ export const deliveryService = {
     latitude: number,
     longitude: number,
     accuracy_m?: number,
+    captured_at?: string,
+    source: DeliveryLocationSource = 'GPS',
   ): Promise<DeliveryTrackingPoint> {
-    return apiRequest<DeliveryTrackingPoint>(`/api/deliveries/${deliveryId}/location`, {
+    const point = await apiRequest<TrackingPointWire>(`/api/deliveries/${deliveryId}/location`, {
       method: 'POST',
-      body: JSON.stringify({ latitude, longitude, accuracy_m }),
+      body: JSON.stringify({ latitude, longitude, accuracy_m, captured_at, source }),
     });
+    return normalizeTrackingPoint(point);
   },
 
-  async getRoute(deliveryId: number, origin?: { lat: number; lng: number }): Promise<RouteResponse> {
+  async getRoute(deliveryId: number, origin?: { lat: number; lng: number }, signal?: AbortSignal): Promise<RouteResponse> {
     return apiRequest<RouteResponse>(`/api/deliveries/${deliveryId}/route`, {
       params: origin ? { origin_lat: origin.lat, origin_lng: origin.lng } : undefined,
+      signal,
     });
   },
 
   async getTracking(deliveryId: number): Promise<DeliveryTrackingListResponse> {
-    return apiRequest<DeliveryTrackingListResponse>(`/api/deliveries/${deliveryId}/tracking`);
+    const response = await apiRequest<{ updates: TrackingPointWire[] }>(`/api/deliveries/${deliveryId}/tracking`);
+    return { updates: response.updates.map(normalizeTrackingPoint) };
   },
 };

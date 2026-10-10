@@ -30,8 +30,9 @@ export const QuantitySelector: React.FC<QuantitySelectorProps> = ({
       <button
         type="button"
         onClick={decrement}
+        aria-label="Decrease quantity"
         disabled={value <= min}
-        className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+        className="w-10 h-10 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
       >
         <Minus className="w-3.5 h-3.5 text-slate-600" />
       </button>
@@ -39,8 +40,9 @@ export const QuantitySelector: React.FC<QuantitySelectorProps> = ({
       <button
         type="button"
         onClick={increment}
+        aria-label="Increase quantity"
         disabled={max !== undefined && value >= max}
-        className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+        className="w-10 h-10 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
       >
         <Plus className="w-3.5 h-3.5 text-slate-600" />
       </button>

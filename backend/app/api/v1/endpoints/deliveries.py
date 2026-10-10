@@ -1,3 +1,4 @@
+from datetime import timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -234,6 +235,7 @@ async def patch_delivery_status(
 @router.post(
     "/{delivery_id}/location",
     response_model=DeliveryTrackingResponse,
+    response_model_by_alias=False,
     summary="Record delivery partner location update",
 )
 async def update_delivery_location(
@@ -252,6 +254,8 @@ async def update_delivery_location(
         payload.latitude,
         payload.longitude,
         payload.accuracy_m,
+        payload.captured_at,
+        payload.source.value,
     )
     await manager.broadcast(
         delivery_id,
@@ -261,8 +265,9 @@ async def update_delivery_location(
             "latitude": update.lat,
             "longitude": update.lng,
             "accuracy_m": update.accuracy_m,
+            "source": update.source,
             "status": update.status.value if update.status else None,
-            "recorded_at": update.recorded_at.isoformat(),
+            "recorded_at": update.recorded_at.replace(tzinfo=timezone.utc).isoformat(),
         },
     )
     return DeliveryTrackingResponse.model_validate(update)
@@ -280,10 +285,17 @@ def get_delivery_route(
     authorize_delivery_access(db, delivery, current_user.user_id, current_user.role)
     if (origin_lat is None) != (origin_lng is None):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="origin_lat and origin_lng must be provided together")
-    route_origin_lat = origin_lat if origin_lat is not None else delivery.pickup_lat
-    route_origin_lng = origin_lng if origin_lng is not None else delivery.pickup_lng
-    route_destination_lat = delivery.pickup_lat if origin_lat is not None else delivery.destination_lat
-    route_destination_lng = delivery.pickup_lng if origin_lng is not None else delivery.destination_lng
+    partner = delivery.delivery_partner
+    has_partner_location = partner and has_valid_coordinates(partner.current_lat, partner.current_lng)
+    route_origin_lat = origin_lat if origin_lat is not None else (
+        float(partner.current_lat) if has_partner_location else delivery.pickup_lat
+    )
+    route_origin_lng = origin_lng if origin_lng is not None else (
+        float(partner.current_lng) if has_partner_location else delivery.pickup_lng
+    )
+    going_to_pickup = delivery.status in {ModelDeliveryStatus.ASSIGNED, ModelDeliveryStatus.ACCEPTED}
+    route_destination_lat = delivery.pickup_lat if going_to_pickup else delivery.destination_lat
+    route_destination_lng = delivery.pickup_lng if going_to_pickup else delivery.destination_lng
     return RouteResponse(
         pickup_lat=route_origin_lat,
         pickup_lng=route_origin_lng,
@@ -292,8 +304,8 @@ def get_delivery_route(
         **get_route(
             route_origin_lat,
             route_origin_lng,
-            delivery.pickup_lat if origin_lat is not None else delivery.destination_lat,
-            delivery.pickup_lng if origin_lng is not None else delivery.destination_lng,
+            route_destination_lat,
+            route_destination_lng,
         )
     )
 
@@ -301,6 +313,7 @@ def get_delivery_route(
 @router.get(
     "/{delivery_id}/tracking",
     response_model=DeliveryTrackingListResponse,
+    response_model_by_alias=False,
     summary="Get delivery tracking history",
 )
 def get_delivery_tracking(

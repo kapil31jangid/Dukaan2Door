@@ -54,6 +54,7 @@ class DeliveryTracking(Base):
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     accuracy_m: Mapped[Optional[float]] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(32), default="GPS", nullable=False)
     status: Mapped[Optional[DeliveryStatus]] = mapped_column(Enum(DeliveryStatus, name="delivery_status"))
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

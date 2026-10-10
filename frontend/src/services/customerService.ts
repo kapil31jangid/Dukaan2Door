@@ -95,8 +95,11 @@ export const customerService = {
     return apiRequest<Delivery>(`/api/deliveries/${deliveryId}`);
   },
 
-  async getDeliveryRoute(deliveryId: number): Promise<RouteResponse> {
-    return apiRequest<RouteResponse>(`/api/deliveries/${deliveryId}/route`);
+  async getDeliveryRoute(deliveryId: number, origin?: { lat: number; lng: number }, signal?: AbortSignal): Promise<RouteResponse> {
+    return apiRequest<RouteResponse>(`/api/deliveries/${deliveryId}/route`, {
+      params: origin ? { origin_lat: origin.lat, origin_lng: origin.lng } : undefined,
+      signal,
+    });
   },
 
   async getDeliveryTracking(deliveryId: number): Promise<DeliveryTrackingListResponse> {

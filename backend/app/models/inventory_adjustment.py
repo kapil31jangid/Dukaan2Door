@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,14 @@ from app.db.base import Base
 
 class InventoryAdjustment(Base):
     __tablename__ = "inventory_adjustments"
+    __table_args__ = (
+        Index(
+            "ix_inventory_adjustments_store_batch",
+            "store_id",
+            "batch_id",
+            postgresql_where=text("batch_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     inventory_id: Mapped[int] = mapped_column(ForeignKey("inventory.id"), nullable=False, index=True)
@@ -17,5 +25,6 @@ class InventoryAdjustment(Base):
     delta: Mapped[int] = mapped_column(Integer, nullable=False)
     quantity_after: Mapped[int] = mapped_column(Integer, nullable=False)
     source: Mapped[str] = mapped_column(String(40), nullable=False)
+    batch_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)

@@ -445,6 +445,33 @@ def test_duplicate_product_increments_inventory(client, retailer_headers, db_ses
     assert r2.json()[0]["quantity_after"] == r1.json()[0]["quantity_after"] + 8
 
 
+def test_retried_confirmation_is_idempotent(client, retailer_headers):
+    payload = {
+        "confirmation_id": "inventory-retry-test-001",
+        "source": "IMAGE_ASSISTED",
+        "items": [
+            {
+                "product_name": "Retry Safe Rice 1kg",
+                "quantity": 7,
+                "unit": "packs",
+                "price": 80.0,
+                "category": "Groceries",
+                "handling_type": "NORMAL",
+            }
+        ],
+    }
+
+    first = client.post("/api/retailer/inventory/confirm", json=payload, headers=retailer_headers)
+    retry = client.post("/api/retailer/inventory/confirm", json=payload, headers=retailer_headers)
+
+    assert first.status_code == 201
+    assert retry.status_code == 201
+    assert retry.json() == first.json()
+    products = client.get("/api/retailers/me/products", headers=retailer_headers).json()
+    product = next(item for item in products if item["name"] == "Retry Safe Rice 1kg")
+    assert product["quantity"] == 7
+
+
 # 14. Retailer isolation enforced
 def test_retailer_isolation_enforced(client, customer_headers):
     # Non-retailer rejected
@@ -474,10 +501,20 @@ def test_gemini_quota_failure_handled():
     client = MockGenAIClient(error=APIError(429, {"error": "Resource exhausted: quota exceeded"}))
     analyzer = GeminiInventoryAnalyzer(api_key="test-key", client=client)
 
-    with pytest.raises(HTTPException) as exc:
-        analyzer.analyze(make_png(), "bill.png", "image/png")
-    assert exc.value.status_code == 429
-    assert "quota" in exc.value.detail.lower()
+    GeminiInventoryAnalyzer._quota_blocked_until.clear()
+    try:
+        with pytest.raises(HTTPException) as exc:
+            analyzer.analyze(make_png(), "bill.png", "image/png")
+        assert exc.value.status_code == 429
+        assert "quota" in exc.value.detail.lower()
+        assert int(exc.value.headers["Retry-After"]) >= 60
+
+        with pytest.raises(HTTPException) as cached:
+            analyzer.analyze(make_png(), "bill.png", "image/png")
+        assert cached.value.status_code == 429
+        assert len(client.calls) == 1
+    finally:
+        GeminiInventoryAnalyzer._quota_blocked_until.clear()
 
 
 # 17. Malformed Gemini response handled

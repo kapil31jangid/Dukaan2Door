@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { retailerService } from '../../services/retailerService';
 import { Product, ProductCreate, ProductUpdate } from '../../types/product';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -23,6 +24,8 @@ import {
 } from 'lucide-react';
 
 export const RetailerInventoryPage: React.FC = () => {
+  const [params, setParams] = useSearchParams();
+  const [stockFilter, setStockFilter] = useState('all');
   const [products, setProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -53,6 +56,16 @@ export const RetailerInventoryPage: React.FC = () => {
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  useEffect(() => {
+    setSearchQuery(params.get('q') || '');
+    if (params.get('add') === 'scan') {
+      setIsOnboardingOpen(true);
+      const next = new URLSearchParams(params);
+      next.delete('add');
+      setParams(next, { replace: true });
+    }
+  }, [params, setParams]);
 
   // Extract unique categories from actual products
   const categories = useMemo(() => {
@@ -119,6 +132,8 @@ export const RetailerInventoryPage: React.FC = () => {
   // Filter products by search and category
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      if (stockFilter === 'low' && !(p.quantity > 0 && p.quantity <= p.low_stock_threshold)) return false;
+      if (stockFilter === 'out' && p.quantity > 0 && p.is_available) return false;
       const matchesCategory = selectedCategory === 'ALL' || p.category === selectedCategory;
       if (!matchesCategory) return false;
       if (!searchQuery.trim()) return true;
@@ -129,12 +144,12 @@ export const RetailerInventoryPage: React.FC = () => {
         (p.description && p.description.toLowerCase().includes(q))
       );
     });
-  }, [products, searchQuery, selectedCategory]);
+  }, [products, searchQuery, selectedCategory, stockFilter]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedCategory, pageSize]);
+  }, [searchQuery, selectedCategory, stockFilter, pageSize]);
 
   // Paginate filtered results
   const totalPages = Math.ceil(filteredProducts.length / pageSize) || 1;
@@ -191,12 +206,16 @@ export const RetailerInventoryPage: React.FC = () => {
       )}
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Stock filters">
+        {[['all', 'All stock'], ['low', 'Low stock'], ['out', 'Out of stock']].map(([value, label]) => <button key={value} aria-pressed={stockFilter === value} onClick={() => setStockFilter(value)} className={`min-h-10 rounded-lg border px-4 text-sm font-semibold ${stockFilter === value ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-600'}`}>{label}</button>)}
+      </div>
+      <div className="flex flex-col 2xl:flex-row items-stretch 2xl:items-center justify-between gap-3">
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           <div className="relative w-full sm:w-80">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
             <input
               type="text"
+              aria-label="Search stock"
               placeholder="Search items by name, code, category..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -207,6 +226,7 @@ export const RetailerInventoryPage: React.FC = () => {
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <Filter className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
             <select
+              aria-label="Inventory category"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="w-full sm:w-48 py-2 px-3 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-medium text-slate-700"
@@ -227,6 +247,7 @@ export const RetailerInventoryPage: React.FC = () => {
             {Math.min(currentPage * pageSize, filteredProducts.length)} of {filteredProducts.length} items
           </span>
           <select
+            aria-label="Items per page"
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
             className="py-1 px-2 text-xs rounded-lg border border-slate-200 bg-white font-semibold text-slate-600"
@@ -255,7 +276,7 @@ export const RetailerInventoryPage: React.FC = () => {
         <div className="space-y-4">
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-100 text-xs">
+              <table className="inventory-table min-w-full divide-y divide-slate-100 text-xs">
                 <thead className="bg-slate-50/80 font-bold text-slate-600">
                   <tr>
                     <th className="px-5 py-3 text-left">Product Title</th>
@@ -270,7 +291,7 @@ export const RetailerInventoryPage: React.FC = () => {
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {paginatedProducts.map((product) => (
                     <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-5 py-3.5">
+                      <td data-label="Product" className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 flex-shrink-0 rounded-lg overflow-hidden bg-slate-100 border border-slate-200">
                             {product.image_url ? (
@@ -298,20 +319,21 @@ export const RetailerInventoryPage: React.FC = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td data-label="Category" className="px-5 py-3.5">
                         <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-medium text-[11px]">
                           {product.category || 'General'}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-right font-extrabold text-slate-900">
+                      <td data-label="Unit price" className="px-5 py-3.5 text-right font-extrabold text-slate-900">
                         ₹{product.price.toFixed(2)}
                       </td>
-                      <td className="px-5 py-3.5 text-center">
+                      <td data-label="Stock" className="px-5 py-3.5 text-center">
                         {editingStockId === product.id ? (
                           <div className="inline-flex items-center gap-1.5">
                             <input
                               type="number"
                               min="0"
+                              aria-label={`Stock for ${product.name}`}
                               value={stockInput}
                               onChange={(e) => setStockInput(parseInt(e.target.value) || 0)}
                               className="w-16 px-2 py-1 text-xs border rounded-lg text-center"
@@ -337,7 +359,7 @@ export const RetailerInventoryPage: React.FC = () => {
                               setStockInput(product.quantity);
                             }}
                             className={`font-bold px-2.5 py-1 rounded-lg border text-xs transition-colors hover:border-emerald-300 ${
-                              product.quantity > 5
+                              product.quantity > product.low_stock_threshold
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                 : product.quantity > 0
                                 ? 'bg-amber-50 text-amber-800 border-amber-200'
@@ -349,8 +371,8 @@ export const RetailerInventoryPage: React.FC = () => {
                           </button>
                         )}
                       </td>
-                      <td className="px-5 py-3.5"><span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${product.handling_type === 'FROZEN' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{product.handling_type}{product.requires_special_equipment ? ' equipment' : ''}</span>{product.quantity <= product.low_stock_threshold && <p className="mt-1 text-[10px] font-bold text-amber-700">Low stock</p>}</td>
-                      <td className="px-5 py-3.5 text-center">
+                      <td data-label="Handling" className="px-5 py-3.5"><span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${product.handling_type === 'FROZEN' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{product.handling_type}{product.requires_special_equipment ? ' equipment' : ''}</span>{product.quantity > 0 && product.quantity <= product.low_stock_threshold && <p className="mt-1 text-[10px] font-bold text-amber-700">Low stock</p>}</td>
+                      <td data-label="Availability" className="px-5 py-3.5 text-center">
                         <button
                           onClick={() => handleToggleAvailability(product)}
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
@@ -372,7 +394,7 @@ export const RetailerInventoryPage: React.FC = () => {
                           )}
                         </button>
                       </td>
-                      <td className="px-5 py-3.5 text-right space-x-1">
+                      <td data-label="Actions" className="px-5 py-3.5 text-right space-x-1">
                         <button
                           onClick={() => {
                             setSelectedProduct(product);

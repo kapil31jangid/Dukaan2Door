@@ -1,4 +1,5 @@
 import math
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -160,6 +161,9 @@ def test_frozen_inventory_is_only_offered_to_capable_riders(client, customer_hea
 
     assert client.get("/api/deliveries/available-orders", headers=normal_rider).json() == []
     available = client.get("/api/deliveries/available-orders", headers=equipped_rider)
+    assert available.status_code == 200
+    assert available.json()[0]["items"][0]["handling_type"] == "FROZEN"
+    assert available.json()[0]["items"][0]["requires_special_equipment"] is True
     assert available.status_code == 200
     assert [order["id"] for order in available.json()] == [order_id]
 
@@ -444,7 +448,7 @@ def test_delivery_assignment_status_tracking_and_route(client, customer_headers,
     assert route.status_code == 200
     assert route.json()["distance_km"] == 4.2
     assert route.json()["duration_minutes"] == 12.5
-    assert route.json()["pickup_lat"] == pytest.approx(28.615)
+    assert route.json()["pickup_lat"] == pytest.approx(28.616)
     assert route.json()["destination_lat"] == pytest.approx(28.6139)
 
     out_for_delivery = client.patch(
@@ -497,6 +501,11 @@ def test_delivery_location_updates_partner_current_location(client, db_session, 
     partner_id = client.get("/api/delivery-partners/me", headers=partner_headers).json()["id"]
     order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
     delivery_id = client.post(f"/api/deliveries/{order_id}/assign", headers=retailer_headers).json()["delivery"]["id"]
+    assert client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "ACCEPTED"},
+        headers=partner_headers,
+    ).status_code == 200
 
     response = client.post(
         f"/api/deliveries/{delivery_id}/location",
@@ -504,9 +513,98 @@ def test_delivery_location_updates_partner_current_location(client, db_session, 
         headers=partner_headers,
     )
     assert response.status_code == 200
+    assert response.json()["latitude"] == pytest.approx(28.617)
+    assert response.json()["longitude"] == pytest.approx(77.212)
+    assert "lat" not in response.json()
+    assert "lng" not in response.json()
     partner = db_session.query(DeliveryPartner).filter(DeliveryPartner.id == partner_id).first()
     assert math.isclose(partner.current_lat, 28.617)
     assert math.isclose(partner.current_lng, 77.212)
+
+
+def test_out_of_order_rider_location_is_rejected_without_overwriting_position(client, customer_headers, retailer_headers, seeded_product):
+    partner_headers = auth_headers(
+        client,
+        "ordered-location-partner@example.com",
+        "delivery_partner",
+        "Ordered Location Partner",
+        lat=28.6151,
+        lng=77.2101,
+    )
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    delivery_id = client.post(f"/api/deliveries/{order_id}/assign", headers=retailer_headers).json()["delivery"]["id"]
+    assert client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "ACCEPTED"},
+        headers=partner_headers,
+    ).status_code == 200
+    now = datetime.now(timezone.utc)
+
+    newer = client.post(
+        f"/api/deliveries/{delivery_id}/location",
+        json={"latitude": 28.617, "longitude": 77.212, "accuracy_m": 8, "captured_at": now.isoformat()},
+        headers=partner_headers,
+    )
+    assert newer.status_code == 200
+    assert newer.json()["recorded_at"].endswith("Z")
+    older = client.post(
+        f"/api/deliveries/{delivery_id}/location",
+        json={"latitude": 28.610, "longitude": 77.205, "accuracy_m": 9, "captured_at": (now - timedelta(seconds=10)).isoformat()},
+        headers=partner_headers,
+    )
+    assert older.status_code == 409
+    profile = client.get("/api/delivery-partners/me", headers=partner_headers).json()
+    assert profile["current_lat"] == pytest.approx(28.617)
+    assert profile["current_lng"] == pytest.approx(77.212)
+
+
+def test_route_target_follows_delivery_stage_and_osrm_uses_lng_lat_order(client, customer_headers, retailer_headers, seeded_product, monkeypatch):
+    partner_headers = auth_headers(
+        client,
+        "stage-route-partner@example.com",
+        "delivery_partner",
+        "Stage Route Partner",
+        lat=28.6200,
+        lng=77.2200,
+    )
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    delivery = client.post(f"/api/deliveries/{order_id}/assign", headers=retailer_headers).json()["delivery"]
+    requested_urls = []
+
+    class MockResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"routes": [{"distance": 1000, "duration": 300, "geometry": {"type": "LineString", "coordinates": []}}]}
+
+    def fake_get(url, **kwargs):
+        requested_urls.append(url)
+        return MockResponse()
+
+    monkeypatch.setattr("app.services.routing_service.httpx.get", fake_get)
+    to_store = client.get(f"/api/deliveries/{delivery['id']}/route", headers=partner_headers)
+    assert to_store.status_code == 200
+    assert to_store.json()["pickup_lat"] == pytest.approx(28.6200)
+    assert to_store.json()["destination_lat"] == pytest.approx(delivery["pickup_lat"])
+    assert "77.22,28.62" in requested_urls[-1]
+
+    assert client.patch(
+        f"/api/deliveries/{delivery['id']}/status",
+        json={"status": "PICKED_UP"},
+        headers=partner_headers,
+    ).status_code == 200
+    captured_at = datetime.now(timezone.utc).isoformat()
+    assert client.post(
+        f"/api/deliveries/{delivery['id']}/location",
+        json={"latitude": 28.618, "longitude": 77.215, "accuracy_m": 7, "captured_at": captured_at},
+        headers=partner_headers,
+    ).status_code == 200
+    to_customer = client.get(f"/api/deliveries/{delivery['id']}/route", headers=customer_headers)
+    assert to_customer.status_code == 200
+    assert to_customer.json()["pickup_lat"] == pytest.approx(28.618)
+    assert to_customer.json()["destination_lat"] == pytest.approx(delivery["destination_lat"])
+    assert "77.215,28.618" in requested_urls[-1]
 
 
 def test_completed_delivery_rejects_late_location_updates(client, customer_headers, retailer_headers, seeded_product):
@@ -668,12 +766,14 @@ def test_websocket_auth_and_delivery_events(client, customer_headers, retailer_h
 
         location_response = client.post(
             f"/api/deliveries/{delivery_id}/location",
-            json={"latitude": 28.616, "longitude": 77.211},
+            json={"latitude": 28.616, "longitude": 77.211, "source": "DEMO_SIMULATION"},
             headers=partner_headers,
         )
         assert location_response.status_code == 200
+        assert location_response.json()["source"] == "DEMO_SIMULATION"
         location_event = websocket.receive_json()
         assert location_event["event"] == "delivery_location_updated"
+        assert location_event["data"]["source"] == "DEMO_SIMULATION"
 
         client.patch(
             f"/api/deliveries/{delivery_id}/status",
@@ -799,6 +899,8 @@ def test_delivery_partner_acceptance_and_gps_accuracy(client, customer_headers, 
     tracking = client.get(f"/api/deliveries/{delivery_id}/tracking", headers=customer_headers)
     assert tracking.status_code == 200
     assert tracking.json()["updates"][-1]["accuracy_m"] == pytest.approx(7.25)
+    assert tracking.json()["updates"][-1]["latitude"] == pytest.approx(28.616)
+    assert tracking.json()["updates"][-1]["longitude"] == pytest.approx(77.211)
 
 
 def test_retailer_order_history_supports_daily_date_bounds(

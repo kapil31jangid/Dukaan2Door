@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import logging
 import re
+import threading
+import time
 from io import BytesIO
 from typing import Any, Optional
 
@@ -87,6 +90,10 @@ DEVANAGARI_RE = re.compile(r"[\u0900-\u097f]")
 class GeminiInventoryAnalyzer:
     """Analyzes inventory documents using Google GenAI SDK (Gemini API)."""
 
+    _quota_lock = threading.Lock()
+    _quota_blocked_until: dict[str, float] = {}
+    _request_slot = threading.BoundedSemaphore(value=1)
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -100,6 +107,22 @@ class GeminiInventoryAnalyzer:
     @property
     def is_configured(self) -> bool:
         return bool(self.api_key and self.api_key.strip())
+
+    def _quota_key(self) -> str:
+        digest = hashlib.sha256((self.api_key or "").encode()).hexdigest()[:12]
+        return f"{self.model}:{digest}"
+
+    def _quota_cooldown_remaining(self) -> int:
+        with self._quota_lock:
+            remaining = self._quota_blocked_until.get(self._quota_key(), 0) - time.monotonic()
+        return max(0, int(remaining + 0.999))
+
+    def _record_quota_cooldown(self, error: Exception) -> int:
+        match = re.search(r"retryDelay[^0-9]*(\d+)s", str(error), flags=re.IGNORECASE)
+        retry_after = min(86400, max(60, int(match.group(1)) if match else 60))
+        with self._quota_lock:
+            self._quota_blocked_until[self._quota_key()] = time.monotonic() + retry_after
+        return retry_after
 
     def _get_client(self) -> Any:
         if self._injected_client is not None:
@@ -201,6 +224,13 @@ class GeminiInventoryAnalyzer:
     ) -> tuple[list[ExtractedInventoryItem], list[OCRTextLine]]:
         """Call Gemini API with structured output and validate results server-side."""
         processed_bytes, mime_type = self.validate_and_preprocess_image(content, filename, content_type)
+        quota_remaining = self._quota_cooldown_remaining()
+        if quota_remaining:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="AI analysis quota is temporarily unavailable. Try again later or enter inventory manually.",
+                headers={"Retry-After": str(quota_remaining)},
+            )
         client = self._get_client()
 
         try:
@@ -221,18 +251,28 @@ class GeminiInventoryAnalyzer:
         )
 
         try:
-            response = client.models.generate_content(
-                model=self.model,
-                contents=[GEMINI_EXTRACTION_PROMPT, part],
-                config=config,
-            )
+            with self._request_slot:
+                quota_remaining = self._quota_cooldown_remaining()
+                if quota_remaining:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="AI analysis quota is temporarily unavailable. Try again later or enter inventory manually.",
+                        headers={"Retry-After": str(quota_remaining)},
+                    )
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=[GEMINI_EXTRACTION_PROMPT, part],
+                    config=config,
+                )
         except APIError as exc:
-            logger.warning("Gemini API error (%s): %s", getattr(exc, "code", None), exc)
             code = getattr(exc, "code", 500)
+            logger.warning("Gemini API request failed with status %s", code)
             if code == 429:
+                retry_after = self._record_quota_cooldown(exc)
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail="AI analysis quota exceeded or rate limited. Please try again shortly or enter inventory manually.",
+                    headers={"Retry-After": str(retry_after)},
                 )
             if code in (401, 403):
                 raise HTTPException(
@@ -243,6 +283,8 @@ class GeminiInventoryAnalyzer:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="AI service is temporarily unavailable. You can enter the products manually.",
             ) from exc
+        except HTTPException:
+            raise
         except (TimeoutError, Exception) as exc:
             logger.warning("Gemini request exception: %s", exc)
             if "deadline" in str(exc).lower() or "timeout" in str(exc).lower():

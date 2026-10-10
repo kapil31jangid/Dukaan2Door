@@ -79,17 +79,17 @@ export const DeliveryHistoryPage: React.FC = () => {
             Total Deliveries Assigned
           </span>
           <p className="text-3xl font-extrabold text-blue-900 mt-2">{orders.length}</p>
-          <span className="text-[11px] text-blue-700/80 mt-1 font-medium">Lifetime assignments</span>
+          <span className="text-[11px] text-blue-700/80 mt-1 font-medium">Recent assignments</span>
         </div>
 
         <div className="p-5 rounded-2xl bg-purple-500/10 border border-purple-500/20">
           <span className="text-xs font-bold uppercase tracking-wider text-purple-700 block">
-            Estimated Trip Payouts
+            Active deliveries
           </span>
           <p className="text-3xl font-extrabold text-purple-900 mt-2">
-            ₹{(completedOrders.length * 45).toFixed(2)}
+            {orders.filter(order => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(order.status)).length}
           </p>
-          <span className="text-[11px] text-purple-700/80 mt-1 font-medium">₹45 base payout / order</span>
+          <span className="text-[11px] text-purple-700/80 mt-1 font-medium">In recent history</span>
         </div>
       </div>
 

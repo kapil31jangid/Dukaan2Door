@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Truck } from 'lucide-react';
 import { customerService } from '../../services/customerService';
-import { DeliveryWebSocketClient } from '../../services/websocketService';
+import { DeliveryWebSocketClient, WebSocketConnectionState } from '../../services/websocketService';
 import { Delivery } from '../../types/delivery';
 import { Order } from '../../types/order';
 import { DeliveryStatus, RouteGeometry, DeliveryTrackingPoint } from '../../types/delivery';
@@ -10,6 +10,7 @@ import { DeliveryMap } from '../../components/maps/DeliveryMap';
 import { useCart } from '../../context/CartContext';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
+import { bearingDegrees, isNewerTrackingPoint, RouteRefreshSnapshot, shouldRefreshRoute } from '../../utils/trackingGeometry';
 
 export const LiveTrackingPage: React.FC = () => {
   const { id: orderIdStr } = useParams<{ id: string }>();
@@ -23,13 +24,36 @@ export const LiveTrackingPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusText, setStatusText] = useState('Connecting to rider...');
+  const [connectionState, setConnectionState] = useState<WebSocketConnectionState>('connecting');
+  const [riderHeading, setRiderHeading] = useState<number | null>(null);
+  const [clock, setClock] = useState(Date.now());
   
   const wsRef = useRef<DeliveryWebSocketClient | null>(null);
+  const latestLocationRef = useRef<DeliveryTrackingPoint | null>(null);
+  const routeController = useRef<AbortController | null>(null);
+  const routeRequestId = useRef(0);
+  const lastRouteRequest = useRef<RouteRefreshSnapshot | null>(null);
+
+  const acceptLocation = (candidate: DeliveryTrackingPoint) => {
+    const previous = latestLocationRef.current;
+    if (!isNewerTrackingPoint(previous, candidate)) return;
+    if (previous) {
+      const heading = bearingDegrees(
+        { lat: previous.latitude, lng: previous.longitude },
+        { lat: candidate.latitude, lng: candidate.longitude },
+      );
+      if (heading != null) setRiderHeading(heading);
+    }
+    latestLocationRef.current = candidate;
+    setCurrentLocation(candidate);
+  };
 
   useEffect(() => {
     if (!orderIdStr) return;
     const orderId = parseInt(orderIdStr, 10);
 
+    let active = true;
+    let trackingInterval: number | undefined;
     const initTracking = async () => {
       try {
         // 1. Fetch order to check if delivery is assigned
@@ -52,29 +76,30 @@ export const LiveTrackingPage: React.FC = () => {
         }
 
         // 2. Fetch delivery, route, and tracking history
-        const [deliveryData, routeData, trackingData] = await Promise.all([
+        const [deliveryData, trackingData] = await Promise.all([
           customerService.getDelivery(deliveryId),
-          customerService.getDeliveryRoute(deliveryId),
           customerService.getDeliveryTracking(deliveryId)
         ]);
 
+        if (!active) return;
         setDelivery(deliveryData);
-        setRouteGeometry(routeData.geometry);
         if (trackingData.updates.length > 0) {
-          setCurrentLocation(trackingData.updates[trackingData.updates.length - 1]);
+          const newest = trackingData.updates.reduce((latest, point) => Date.parse(point.recorded_at) > Date.parse(latest.recorded_at) ? point : latest);
+          acceptLocation(newest);
         }
 
         const refreshTracking = async () => {
           try {
             const latest = await customerService.getDeliveryTracking(deliveryId);
             if (latest.updates.length > 0) {
-              setCurrentLocation(latest.updates[latest.updates.length - 1]);
+              const newest = latest.updates.reduce((point, candidate) => Date.parse(candidate.recorded_at) > Date.parse(point.recorded_at) ? candidate : point);
+              if (active) acceptLocation(newest);
             }
           } catch {
             // WebSocket remains the primary live channel.
           }
         };
-        const trackingInterval = window.setInterval(refreshTracking, 2500);
+        trackingInterval = window.setInterval(refreshTracking, 2500);
         
         setStatusText(
           deliveryData.status === 'DELIVERED' 
@@ -88,12 +113,13 @@ export const LiveTrackingPage: React.FC = () => {
           
           wsRef.current.subscribe((evt) => {
             if (evt.event === 'delivery_location_updated') {
-              setCurrentLocation({
+              acceptLocation({
                 id: 0,
                 delivery_id: deliveryId,
                 latitude: evt.data.latitude,
                 longitude: evt.data.longitude,
                 accuracy_m: evt.data.accuracy_m,
+                source: evt.data.source,
                 recorded_at: evt.data.recorded_at,
                 status: evt.data.status,
               });
@@ -110,26 +136,57 @@ export const LiveTrackingPage: React.FC = () => {
             }
           });
 
+          wsRef.current.subscribeConnection(setConnectionState);
+
           wsRef.current.connect();
         }
 
         setIsLoading(false);
 
-        return () => window.clearInterval(trackingInterval);
       } catch (err: any) {
-        setError(err.message || 'Failed to initialize live tracking.');
-        setIsLoading(false);
+        if (active) {
+          setError(err.message || 'Failed to initialize live tracking.');
+          setIsLoading(false);
+        }
       }
     };
 
-    let stopPolling: (() => void) | undefined;
-    initTracking().then((cleanup) => { stopPolling = cleanup; });
+    void initTracking();
 
     return () => {
-      stopPolling?.();
+      active = false;
+      if (trackingInterval) window.clearInterval(trackingInterval);
       wsRef.current?.disconnect();
     };
   }, [orderIdStr]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!delivery || ['DELIVERED', 'CANCELLED'].includes(delivery.status)) {
+      routeController.current?.abort();
+      setRouteGeometry(undefined);
+      return;
+    }
+    const origin = currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : undefined;
+    const requestSnapshot = { deliveryId: delivery.id, status: delivery.status, origin, requestedAt: Date.now() };
+    const freezeDemoRoute = currentLocation?.source === 'DEMO_SIMULATION' && Boolean(routeGeometry?.coordinates?.length);
+    if (!shouldRefreshRoute(lastRouteRequest.current, requestSnapshot, freezeDemoRoute)) return;
+
+    routeController.current?.abort();
+    const controller = new AbortController();
+    routeController.current = controller;
+    const requestId = ++routeRequestId.current;
+    lastRouteRequest.current = requestSnapshot;
+    customerService.getDeliveryRoute(delivery.id, origin, controller.signal)
+      .then((data) => { if (requestId === routeRequestId.current) setRouteGeometry(data.geometry); })
+      .catch(() => { if (requestId === routeRequestId.current && !controller.signal.aborted) setRouteGeometry(undefined); });
+  }, [currentLocation?.latitude, currentLocation?.longitude, delivery?.id, delivery?.status]);
+
+  useEffect(() => () => routeController.current?.abort(), []);
 
   if (isLoading) {
     return (
@@ -151,6 +208,20 @@ export const LiveTrackingPage: React.FC = () => {
   }
 
   const partnerPhone = order.delivery_partner_phone || undefined;
+  const ageMs = currentLocation ? clock - Date.parse(currentLocation.recorded_at) : Number.POSITIVE_INFINITY;
+  const fresh = ageMs <= 30000;
+  const weak = (currentLocation?.accuracy_m ?? 0) > 60;
+  const liveStatus = delivery.status === 'DELIVERED'
+    ? 'Delivered Successfully!'
+    : currentLocation?.source === 'DEMO_SIMULATION'
+      ? fresh ? 'Demo route playback active' : 'Demo route playback paused'
+    : !currentLocation
+      ? 'Waiting for rider location'
+      : weak
+        ? 'GPS signal weak'
+        : !fresh
+          ? `Last updated ${Math.max(1, Math.floor(ageMs / 60000))} min ago`
+          : connectionState === 'connected' ? 'Live tracking active' : 'Connection interrupted';
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] lg:h-[calc(100vh-80px)] -mx-4 sm:mx-0 sm:rounded-2xl overflow-hidden relative border border-slate-200">
@@ -169,9 +240,9 @@ export const LiveTrackingPage: React.FC = () => {
               Order #{order.id}
             </p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <div className={`w-2 h-2 rounded-full ${delivery.status === 'DELIVERED' ? 'bg-emerald-500' : 'bg-emerald-500 animate-pulse'}`} />
+              <div className={`w-2 h-2 rounded-full ${fresh && connectionState === 'connected' && delivery.status !== 'DELIVERED' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
               <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
-                {statusText}
+                {liveStatus || statusText}
               </p>
             </div>
           </div>
@@ -189,7 +260,10 @@ export const LiveTrackingPage: React.FC = () => {
           currentLat={currentLocation?.latitude}
           currentLng={currentLocation?.longitude}
           currentAccuracyM={currentLocation?.accuracy_m}
+          currentHeading={riderHeading}
+          currentSource={currentLocation?.source}
           routeGeometry={routeGeometry}
+          height="100%"
         />
       </div>
 

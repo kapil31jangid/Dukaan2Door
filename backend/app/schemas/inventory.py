@@ -103,6 +103,13 @@ class InventoryConfirmItem(BaseModel):
 class InventoryConfirmRequest(BaseModel):
     items: list[InventoryConfirmItem] = Field(..., min_length=1, max_length=100)
     source: Literal["IMAGE_ASSISTED", "MANUAL"] = "IMAGE_ASSISTED"
+    confirmation_id: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+        description="Client-generated key reused when retrying the same confirmation.",
+    )
 
 
 class InventoryConfirmResult(BaseModel):

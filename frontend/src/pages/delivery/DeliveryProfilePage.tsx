@@ -1,20 +1,45 @@
 import React, { useEffect, useState } from 'react';
-import { Bike, CheckCircle2, MapPin, Phone, UserRound, TrendingUp, Wallet } from 'lucide-react';
 import { deliveryService } from '../../services/deliveryService';
 import { DeliveryPartnerProfile } from '../../types/user';
-import { Order } from '../../types/order';
+import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/ui/Button';
+import { Alert } from '../../components/ui/Alert';
 import { Spinner } from '../../components/ui/Spinner';
 
 export const DeliveryProfilePage: React.FC = () => {
+  const { logout } = useAuth();
   const [profile, setProfile] = useState<DeliveryPartnerProfile | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
-  useEffect(() => { Promise.all([deliveryService.getProfile(), deliveryService.getAssignedOrders()]).then(([profileData, orderData]) => { setProfile(profileData); setOrders(orderData); }).catch(() => setProfile(null)); }, []);
-  if (!profile) return <Spinner size="lg" label="Loading profile..." />;
-  const toggle = async () => { setIsSaving(true); try { setProfile(await deliveryService.updateProfile({ is_available: !profile.is_available })); } finally { setIsSaving(false); } };
-  const completed = orders.filter((order) => order.status === 'DELIVERED');
-  const today = new Date().toDateString();
-  const completedToday = completed.filter((order) => new Date(order.updated_at).toDateString() === today);
-  return <div className="space-y-6"><div><h1 className="text-2xl font-extrabold tracking-tight">Profile</h1><p className="mt-1 text-sm text-slate-500">Manage your delivery partner profile and availability.</p></div><div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]"><div className="rounded-xl border border-slate-200 bg-white p-6 xl:row-span-2"><div className="flex items-center gap-4"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-900 text-xl font-bold text-white">{profile.name.charAt(0)}</div><div><h2 className="text-xl font-extrabold">{profile.name}</h2><p className="text-sm text-slate-500">{profile.phone || 'Phone not provided'}</p><button className="mt-3 rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-bold text-blue-600">Edit Profile</button></div></div><div className="mt-8 space-y-4 border-t border-slate-100 pt-6 text-sm"><p className="flex items-center gap-3"><Bike className="h-4 w-4 text-blue-600" /><span className="font-semibold">{profile.vehicle_info || 'Delivery vehicle'}</span></p><p className="flex items-center gap-3"><MapPin className="h-4 w-4 text-emerald-600" />{profile.current_lat && profile.current_lng ? `${profile.current_lat.toFixed(4)}, ${profile.current_lng.toFixed(4)}` : 'Location not reported'}</p><p className="flex items-center gap-3"><Phone className="h-4 w-4 text-slate-500" />{profile.phone || 'Phone not provided'}</p></div></div><div className="rounded-xl border border-slate-200 bg-white p-5"><div className="flex items-start justify-between"><div><p className="text-xs font-bold text-slate-500">Today&apos;s Earnings</p><p className="mt-3 text-2xl font-black">₹{completedToday.length * 45}</p><p className="mt-2 text-xs text-slate-500">{completedToday.length} deliveries</p></div><TrendingUp className="h-5 w-5 text-blue-500" /></div></div><div className="rounded-xl border border-slate-200 bg-white p-5"><div className="flex items-start justify-between"><div><p className="text-xs font-bold text-slate-500">Total Earnings</p><p className="mt-3 text-2xl font-black">₹{completed.length * 45}</p><p className="mt-2 text-xs text-slate-500">{completed.length} completed deliveries</p></div><Wallet className="h-5 w-5 text-blue-500" /></div></div><div className="rounded-xl border border-slate-200 bg-white p-6 xl:col-span-2"><div className="flex items-center gap-2"><UserRound className="h-5 w-5 text-blue-600" /><h2 className="font-bold">Availability</h2></div><p className="mt-1 text-sm text-slate-500">Go online to receive delivery assignments.</p><Button className="mt-5" variant={profile.is_available ? 'danger' : 'primary'} isLoading={isSaving} onClick={toggle} leftIcon={<CheckCircle2 className="h-4 w-4" />}>{profile.is_available ? 'Go Offline' : 'Go Online'}</Button></div></div></div>;
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try { setProfile(await deliveryService.getProfile()); setError(''); }
+    catch { setError('Your profile could not be loaded. Please retry.'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profile || saving) return;
+    setSaving(true); setNotice('');
+    try {
+      setProfile(await deliveryService.updateProfile({ name: profile.name, phone: profile.phone || '', vehicle_info: profile.vehicle_info || '', is_available: profile.is_available }));
+      setError(''); setNotice('Profile saved.');
+    } catch { setError('Your changes could not be saved. Please retry.'); }
+    finally { setSaving(false); }
+  };
+  if (loading) return <Spinner label="Loading partner profile..." />;
+  return <div className="max-w-2xl space-y-6"><header><h1 className="text-2xl font-bold">Partner account</h1><p className="mt-2 text-sm text-slate-500">Your contact details, vehicle, and availability.</p></header>
+    {error && <Alert variant="error">{error}<button className="ml-2 underline" onClick={() => void load()}>Retry</button></Alert>}
+    {notice && <Alert variant="success">{notice}</Alert>}
+    {profile && <form onSubmit={save} className="space-y-5 border-y border-slate-200 py-6">
+      {([{ key: 'name', label: 'Full name', required: true }, { key: 'phone', label: 'Phone number' }, { key: 'vehicle_info', label: 'Vehicle details' }] as const).map(field => <label key={field.key} className="block text-sm font-semibold">{field.label}<input required={field.key === 'name'} type={field.key === 'phone' ? 'tel' : 'text'} value={profile[field.key] || ''} onChange={event => setProfile({ ...profile, [field.key]: event.target.value })} className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2" /></label>)}
+      <label className="flex min-h-11 items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={profile.is_available} onChange={event => setProfile({ ...profile, is_available: event.target.checked })} className="h-5 w-5 accent-blue-700" />Available for delivery requests</label>
+      {profile.current_lat != null && profile.current_lng != null && <p className="text-xs text-slate-500">Last reported location: {profile.current_lat.toFixed(4)}, {profile.current_lng.toFixed(4)}</p>}
+      <Button type="submit" isLoading={saving}>Save changes</Button>
+    </form>}
+    <Button variant="outline" onClick={logout}>Sign out</Button>
+  </div>;
 };

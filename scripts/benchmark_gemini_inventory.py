@@ -42,11 +42,41 @@ def normalize(value: Any) -> str:
         return val
 
 
-def field_accuracy(expected: list[dict[str, Any]], actual: list[Any], field: str) -> tuple[int, int]:
-    comparable = [(index, row[field]) for index, row in enumerate(expected) if row.get(field) is not None]
+def normalize_product_name(value: Any) -> str:
+    value = normalize(value)
+    return re.sub(r"\s+\d+(?:\.\d+)?\s*(?:kg|g|mg|l|ml|ltr|litre|pack|pcs?)\b", "", value).strip()
+
+
+def match_products(expected: list[dict[str, Any]], actual: list[Any]) -> tuple[list[tuple[dict[str, Any], Any]], list[dict[str, Any]], list[Any]]:
+    """Match rows by normalized product name without hiding missing or extra output."""
+    unmatched_actual = list(actual)
+    matches: list[tuple[dict[str, Any], Any]] = []
+    missing: list[dict[str, Any]] = []
+    for expected_row in expected:
+        expected_name = normalize_product_name(expected_row.get("product_name"))
+        match_index = next(
+            (
+                index
+                for index, item in enumerate(unmatched_actual)
+                if normalize_product_name(getattr(item, "product_name", None)) == expected_name
+            ),
+            None,
+        )
+        if match_index is None:
+            missing.append(expected_row)
+        else:
+            matches.append((expected_row, unmatched_actual.pop(match_index)))
+    return matches, missing, unmatched_actual
+
+
+def field_accuracy(matches: list[tuple[dict[str, Any], Any]], expected: list[dict[str, Any]], field: str) -> tuple[int, int]:
+    comparable = [row[field] for row in expected if row.get(field) is not None]
+    normalizer = normalize_product_name if field == "product_name" else normalize
+    actual_field = "price" if field == "unit_price" else field
     correct = sum(
-        index < len(actual) and normalize(getattr(actual[index], field, None)) == normalize(value)
-        for index, value in comparable
+        normalizer(getattr(actual_row, actual_field, None)) == normalizer(expected_row[field])
+        for expected_row, actual_row in matches
+        if expected_row.get(field) is not None
     )
     return correct, len(comparable)
 
@@ -236,7 +266,8 @@ def main() -> int:
 
     analyzer = GeminiInventoryAnalyzer(model=args.model)
 
-    totals = {"product_name": [0, 0], "quantity": [0, 0], "price": [0, 0]}
+    metric_fields = ("product_name", "quantity", "unit", "unit_price", "total_price")
+    totals = {field: [0, 0] for field in metric_fields}
     needs_review_correct = 0
     needs_review_total = 0
     reports = []
@@ -263,18 +294,27 @@ def main() -> int:
             success = False
             error_msg = str(exc)
 
+        expected = case.get("expected", [])
+        matches, missing_rows, hallucinated_rows = match_products(expected, items) if success else ([], expected, [])
         scores = {}
         for field in totals:
-            correct, count = field_accuracy(case.get("expected", []), items, field)
-            totals[field][0] += correct
-            totals[field][1] += count
-            scores[field] = None if count == 0 else round(correct / count, 3)
+            expected_for_field = expected
+            if field == "unit_price" and any("price" in row for row in expected):
+                expected_for_field = [
+                    dict(row, unit_price=row.get("unit_price", row.get("price")))
+                    for row in expected
+                ]
+            correct, count = field_accuracy(matches, expected_for_field, field)
+            if success:
+                totals[field][0] += correct
+                totals[field][1] += count
+            scores[field] = None if not success or count == 0 else round(correct / count, 3)
 
         # Check needs_review accuracy for poor handwriting or uncertain cases
-        for idx, exp in enumerate(case.get("expected", [])):
-            if "needs_review" in exp:
+        for exp, item in matches:
+            if success and "needs_review" in exp:
                 needs_review_total += 1
-                if idx < len(items) and items[idx].needs_review == exp["needs_review"]:
+                if item.needs_review == exp["needs_review"]:
                     needs_review_correct += 1
 
         reports.append({
@@ -283,7 +323,21 @@ def main() -> int:
             "products_detected": len(items),
             "seconds": round(elapsed, 3),
             "status": "PASS" if success else f"FAIL ({error_msg})",
+            "provider_error": error_msg,
             "field_accuracy": scores,
+            "expected_products": len(expected),
+            "matched_products": len(matches),
+            "missing_product_rows": [row.get("product_name") for row in missing_rows],
+            "hallucinated_product_rows": [getattr(row, "product_name", None) for row in hallucinated_rows],
+            "extracted": [
+                {
+                    "product_name": item.product_name,
+                    "quantity": item.quantity,
+                    "price": item.price,
+                    "needs_review": item.needs_review,
+                }
+                for item in items
+            ],
         })
         print(f"  [{case.get('name')}] -> {len(items)} items in {elapsed:.2f}s (Accuracy: {scores})")
 
@@ -292,16 +346,36 @@ def main() -> int:
         for field, (correct, count) in totals.items()
     }
     avg_seconds = round(sum(case["seconds"] for case in reports) / len(reports), 3) if reports else 0
+    successful_cases = sum(case["status"] == "PASS" for case in reports)
+    failed_cases = len(reports) - successful_cases
+    provider_errors = [case for case in reports if case["provider_error"]]
+    missing_rows = sum(len(case["missing_product_rows"]) for case in reports)
+    hallucinated_rows = sum(len(case["hallucinated_product_rows"]) for case in reports)
+    categories: dict[str, dict[str, int]] = {}
+    for case in reports:
+        category = case.get("category") or "uncategorized"
+        result = categories.setdefault(category, {"cases": 0, "passed": 0, "missing_rows": 0, "hallucinated_rows": 0})
+        result["cases"] += 1
+        result["passed"] += int(case["status"] == "PASS")
+        result["missing_rows"] += len(case["missing_product_rows"])
+        result["hallucinated_rows"] += len(case["hallucinated_product_rows"])
 
     print("\n" + "=" * 70)
     print("BENCHMARK SUMMARY RESULTS")
     print("=" * 70)
     print(f"PRODUCT NAME ACCURACY: {((summary.get('product_name') or 0.0) * 100):.1f}%")
     print(f"QUANTITY ACCURACY:     {((summary.get('quantity') or 0.0) * 100):.1f}%")
-    print(f"PRICE ACCURACY:        {((summary.get('price') or 0.0) * 100):.1f}%")
+    print(f"UNIT ACCURACY:         {((summary.get('unit') or 0.0) * 100):.1f}%")
+    print(f"UNIT PRICE ACCURACY:   {((summary.get('unit_price') or 0.0) * 100):.1f}%")
+    print(f"TOTAL PRICE ACCURACY:  {((summary.get('total_price') or 0.0) * 100):.1f}%")
     if needs_review_total > 0:
         print(f"NEEDS REVIEW ACCURACY: {(needs_review_correct / needs_review_total) * 100:.1f}%")
     print(f"AVERAGE RESPONSE TIME: {avg_seconds:.2f} seconds")
+    print(f"SUCCESSFUL CASES:      {successful_cases}/{len(reports)}")
+    print(f"FAILED CASES:          {failed_cases}")
+    print(f"PROVIDER ERRORS:       {len(provider_errors)}")
+    print(f"MISSING PRODUCT ROWS:  {missing_rows}")
+    print(f"EXTRA PRODUCT ROWS:    {hallucinated_rows}")
     print("=" * 70)
 
     # Save summary report to JSON
@@ -311,11 +385,17 @@ def main() -> int:
         "model": args.model or settings.GEMINI_MODEL,
         "summary_accuracy": summary,
         "average_seconds": avg_seconds,
+        "successful_cases": successful_cases,
+        "failed_cases": failed_cases,
+        "provider_errors": len(provider_errors),
+        "missing_product_rows": missing_rows,
+        "hallucinated_product_rows": hallucinated_rows,
+        "category_breakdown": categories,
         "cases": reports,
     }
     report_file.write_text(json.dumps(report_data, indent=2))
     print(f"Saved benchmark report to {report_file}")
-    return 0
+    return 0 if failed_cases == 0 else 2
 
 
 if __name__ == "__main__":

@@ -63,6 +63,8 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
   }
 
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const config: RequestInit = {
     ...customConfig,
@@ -78,6 +80,7 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
     throw new ApiError(err.message || 'Network connection failed', 0);
   } finally {
     window.clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 
   if (response.status === 401) {

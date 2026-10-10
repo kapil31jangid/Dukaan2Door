@@ -10,6 +10,7 @@ from app.core.deps import UserContext, get_db, require_role
 from app.models.inventory import Inventory
 from app.models.inventory_adjustment import InventoryAdjustment
 from app.models.product import Product
+from app.models.store import Store
 from app.schemas.inventory import (
     InventoryAdjustmentResponse,
     InventoryAnalysisResponse,
@@ -98,6 +99,31 @@ def _confirm_inventory(payload: InventoryConfirmRequest, current_user: UserConte
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Retailer store not found")
     results: list[InventoryConfirmResult] = []
     try:
+        # Serialize confirmations for one store so concurrent retries cannot both
+        # pass the idempotency check and increment stock twice.
+        store = db.query(Store).filter(Store.id == store.id).with_for_update().one()
+        if payload.confirmation_id:
+            previous = (
+                db.query(InventoryAdjustment)
+                .filter(
+                    InventoryAdjustment.store_id == store.id,
+                    InventoryAdjustment.batch_id == payload.confirmation_id,
+                )
+                .order_by(InventoryAdjustment.id.asc())
+                .all()
+            )
+            if previous:
+                return [
+                    InventoryConfirmResult(
+                        product_id=row.product_id,
+                        inventory_id=row.inventory_id,
+                        created=(row.quantity_after - row.delta == 0),
+                        quantity_before=row.quantity_after - row.delta,
+                        quantity_after=row.quantity_after,
+                    )
+                    for row in previous
+                ]
+
         for item in payload.items:
             product: Optional[Product] = None
             if item.existing_product_id:
@@ -154,6 +180,7 @@ def _confirm_inventory(payload: InventoryConfirmRequest, current_user: UserConte
                 delta=item.quantity,
                 quantity_after=inventory.quantity,
                 source=payload.source,
+                batch_id=payload.confirmation_id,
             ))
             results.append(InventoryConfirmResult(product_id=product.id, inventory_id=inventory.id, created=created, quantity_before=before, quantity_after=inventory.quantity))
         db.commit()

@@ -40,6 +40,7 @@ export const Alert: React.FC<AlertProps> = ({
 
   return (
     <div
+      role={variant === 'error' ? 'alert' : 'status'}
       className={twMerge(
         'p-4 rounded-xl border flex items-start gap-3 text-sm transition-all',
         config.bg,
@@ -53,6 +54,7 @@ export const Alert: React.FC<AlertProps> = ({
       </div>
       {onDismiss && (
         <button
+          aria-label="Dismiss message"
           onClick={onDismiss}
           className="p-1 rounded-md opacity-60 hover:opacity-100 hover:bg-black/5 transition-opacity"
         >

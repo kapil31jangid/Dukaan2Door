@@ -34,18 +34,10 @@ export const CustomerLayout: React.FC = () => {
 
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
 
-  const rotatingPlaceholders = [
-    'Search for "milk, curd & butter"',
-    'Search for "lays, kurkure & chips"',
-    'Search for "aashirvaad atta, rice & dal"',
-    'Search for "dove soap & shampoo"',
-    'Search for "tata tea & nescafe coffee"',
-  ];
 
   // Load the saved delivery location. Location changes must be explicit so a browser
   // GPS fix cannot silently overwrite a manually selected address.
@@ -80,12 +72,6 @@ export const CustomerLayout: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPlaceholderIndex((prev) => (prev + 1) % rotatingPlaceholders.length);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,7 +83,7 @@ export const CustomerLayout: React.FC = () => {
   const currentAddress = profile?.delivery_address || 'Choose delivery location';
 
   return (
-    <div className="customer-shell flex min-h-screen flex-col bg-[#f6f8fa] font-sans text-slate-900">
+    <div className="portal-shell customer-shell flex min-h-screen flex-col font-sans text-slate-900">
       {/* Location Modal */}
       <LocationModal
         isOpen={isLocationModalOpen}
@@ -111,7 +97,7 @@ export const CustomerLayout: React.FC = () => {
       {/* Customer storefront header */}
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between gap-3 sm:gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3 xl:flex-nowrap">
             
             {/* Brand Logo & Tagline */}
             <div className="flex items-center gap-4 sm:gap-6 shrink-0">
@@ -130,7 +116,7 @@ export const CustomerLayout: React.FC = () => {
               </button>
 
               {/* Delivery Time & Location Dropdown with 1-Click GPS */}
-              <div className="hidden md:flex items-center pl-3 border-l border-slate-200">
+              <div className="hidden xl:flex items-center pl-3 border-l border-slate-200">
                 <button
                   onClick={() => setIsLocationModalOpen(true)}
                   className="flex flex-col text-left group focus:outline-none"
@@ -154,23 +140,24 @@ export const CustomerLayout: React.FC = () => {
                   {isFetchingLocation ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
-                    <Navigation className="w-3.5 h-3.5 fill-purple-700" />
+                    <Navigation className="w-3.5 h-3.5 fill-rose-700" />
                   )}
                 </button>
               </div>
             </div>
 
             {/* Global catalog search */}
-            <form onSubmit={handleSearchSubmit} className="flex-1 max-w-2xl">
+            <form onSubmit={handleSearchSubmit} role="search" className="order-last w-full xl:order-none xl:w-auto xl:flex-1">
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-purple-600 transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-rose-600 transition-colors">
                   <Search className="w-4 h-4" />
                 </div>
                 <input
                   type="text"
+                  aria-label="Search products"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={rotatingPlaceholders[placeholderIndex]}
+                  placeholder="Search groceries and essentials"
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-11 pr-4 text-sm text-slate-900 shadow-none transition-all placeholder:text-slate-400 hover:bg-white focus:border-rose-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-500/10"
                 />
               </div>
@@ -199,9 +186,9 @@ export const CustomerLayout: React.FC = () => {
               {/* Profile / Account */}
               <button
                 onClick={() => navigate('/customer/profile')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-100 text-xs font-bold transition-colors"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-700 hover:bg-slate-100 text-xs font-bold transition-colors"
               >
-                <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-black">
+                <div className="w-6 h-6 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-xs font-black">
                   {(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
                 </div>
                 <span className="hidden sm:inline max-w-24 truncate">{user?.name || 'Account'}</span>
@@ -224,7 +211,7 @@ export const CustomerLayout: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <span>{totalItems > 0 ? `₹${Math.round(totalPrice)}` : 'Cart'}</span>
+                <span>{totalItems > 0 ? `₹${totalPrice.toFixed(2)}` : 'Cart'}</span>
               </button>
 
               {/* Logout */}
@@ -233,7 +220,8 @@ export const CustomerLayout: React.FC = () => {
                   logout();
                   navigate('/login');
                 }}
-                className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                className="hidden sm:block p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                aria-label="Sign out"
                 title="Logout"
               >
                 <LogOut className="w-4 h-4" />
@@ -243,12 +231,12 @@ export const CustomerLayout: React.FC = () => {
         </div>
 
         {/* Mobile Location bar */}
-        <div className="md:hidden px-4 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs gap-2">
+        <div className="xl:hidden px-4 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs gap-2">
           <button
             onClick={() => setIsLocationModalOpen(true)}
             className="flex items-center gap-1.5 text-slate-700 font-semibold truncate flex-1"
           >
-            <MapPin className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+            <MapPin className="w-3.5 h-3.5 text-rose-600 shrink-0" />
             <span className="truncate">{currentAddress}</span>
             <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
           </button>
@@ -257,12 +245,12 @@ export const CustomerLayout: React.FC = () => {
             onClick={handleQuickFetchLocation}
             disabled={isFetchingLocation}
             title="Auto-fetch GPS location"
-            className="p-1 px-2 rounded-lg bg-purple-100 text-purple-700 font-bold text-[10px] flex items-center gap-1 shrink-0"
+            className="p-1 px-2 rounded-lg bg-rose-100 text-rose-700 font-bold text-[10px] flex items-center gap-1 shrink-0"
           >
             {isFetchingLocation ? (
               <Loader2 className="w-3 h-3 animate-spin" />
             ) : (
-              <Navigation className="w-3 h-3 fill-purple-700" />
+              <Navigation className="w-3 h-3 fill-rose-700" />
             )}
             <span>GPS</span>
           </button>
@@ -279,22 +267,22 @@ export const CustomerLayout: React.FC = () => {
             <div className="flex items-center gap-2 overflow-x-auto py-2.5 no-scrollbar">
               {[{ id: 'all', name: 'All products' }, ...categories.map((category) => ({ id: category, name: category }))].map((cat) => {
                 const isActive =
-                  (cat.id === 'all' && ['/customer/home', '/customer/store', '/customer/products'].includes(location.pathname)) ||
-                  location.search.includes(`category=${encodeURIComponent(cat.id)}`);
+                  (cat.id === 'all' && ['/customer/home', '/customer/store', '/customer/products'].includes(location.pathname) && !new URLSearchParams(location.search).has('category')) ||
+                  new URLSearchParams(location.search).get('category') === cat.id;
 
                 return (
                   <button
                     key={cat.id}
                     onClick={() => {
                       if (cat.id === 'all') {
-                        navigate('/customer/home');
+                        navigate('/customer/products');
                       } else {
                         navigate(`/customer/products?category=${encodeURIComponent(cat.id)}`);
                       }
                     }}
                     className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all ${
                       isActive
-                        ? 'bg-purple-50 text-purple-700 border border-purple-200/80 shadow-2xs'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
@@ -309,13 +297,13 @@ export const CustomerLayout: React.FC = () => {
       </header>
 
       {/* Main Content Area */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 pb-24 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-5 pb-44 sm:px-6 lg:px-8">
         <Outlet />
       </main>
 
       {/* Floating cart action when items are present */}
       {totalItems > 0 && location.pathname !== '/customer/cart' && location.pathname !== '/customer/checkout' && (
-        <div className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-8 sm:w-96 z-40 animate-bounce-short">
+        <div className="fixed bottom-20 left-4 right-4 sm:bottom-5 sm:left-auto sm:right-8 sm:w-96 z-40">
           <button
             onClick={() => navigate('/customer/cart')}
             className="w-full bg-slate-950 text-white rounded-2xl p-3.5 shadow-2xl flex items-center justify-between border border-slate-800 hover:bg-slate-900 transition-all hover:scale-[1.02]"
@@ -330,7 +318,7 @@ export const CustomerLayout: React.FC = () => {
                   <span>LOCAL STORE</span>
                 </div>
                 <p className="text-sm font-black text-white">
-                  {totalItems} {totalItems === 1 ? 'item' : 'items'} • ₹{Math.round(totalPrice)}
+                  {totalItems} {totalItems === 1 ? 'item' : 'items'} • ₹{totalPrice.toFixed(2)}
                 </p>
               </div>
             </div>

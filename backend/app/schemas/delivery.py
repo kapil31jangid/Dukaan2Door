@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, List, Optional
 
@@ -14,6 +14,12 @@ class DeliveryStatus(str, Enum):
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
     DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
+
+
+class DeliveryLocationSource(str, Enum):
+    GPS = "GPS"
+    DEMO_SIMULATION = "DEMO_SIMULATION"
+    LIFECYCLE = "LIFECYCLE"
 
 
 class DeliveryResponse(BaseModel):
@@ -46,6 +52,8 @@ class DeliveryLocationUpdate(BaseModel):
     latitude: float
     longitude: float
     accuracy_m: Optional[float] = Field(default=None, ge=0)
+    captured_at: Optional[datetime] = None
+    source: DeliveryLocationSource = DeliveryLocationSource.GPS
 
     @field_validator("longitude")
     @classmethod
@@ -62,8 +70,16 @@ class DeliveryTrackingResponse(BaseModel):
     latitude: float = Field(alias="lat")
     longitude: float = Field(alias="lng")
     accuracy_m: Optional[float] = None
+    source: DeliveryLocationSource = DeliveryLocationSource.GPS
     status: Optional[DeliveryStatus] = None
     recorded_at: datetime
+
+    @field_validator("recorded_at", mode="before")
+    @classmethod
+    def serialize_recorded_at_as_utc(cls, value):
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 

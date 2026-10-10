@@ -14,9 +14,9 @@ Delivery partner self-claim · OSRM route planning · Real-time live tracking
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%20/%20Neon-336791.svg)](https://neon.tech/)
 [![Maps](https://img.shields.io/badge/Maps-Mapbox%20GL%20JS-4264FB.svg)](https://docs.mapbox.com/mapbox-gl-js/)
 [![Routing](https://img.shields.io/badge/Routing-OSRM-FF6600.svg)](https://project-osrm.org/)
-[![OCR](https://img.shields.io/badge/OCR-PaddleOCR-0052CC.svg)](https://github.com/PaddlePaddle/PaddleOCR)
+[![Inventory AI](https://img.shields.io/badge/Inventory%20AI-Gemini-4285F4.svg)](https://ai.google.dev/gemini-api/docs)
 [![Migrations](https://img.shields.io/badge/Migrations-Alembic-4B8BBE.svg)](backend/alembic/)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-63%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/Backend%20Tests-104%20passed-brightgreen.svg)](#testing)
 [![WebSocket](https://img.shields.io/badge/Realtime-WebSockets-blueviolet.svg)](#real-time-tracking)
 
 </div>
@@ -58,18 +58,18 @@ workflows move the order through fulfillment to delivery — all tracked in real
 time on an interactive map.
 
 The platform is designed around a **direct local-store experience** rather than
-a large marketplace. It features three dedicated portals — one each for
-customers, retailers, and delivery partners — unified by a single login page
-with role-based routing.
+a large marketplace. Its public home routes customers, retailers, and delivery
+partners to dedicated sign-in screens and protected role-specific portals.
 
 ### Key Highlights
 
 - **Inventory-aware store matching** — 2 km radius, 5 km fallback
 - **Complete order lifecycle** — from cart to delivered, with state-machine validation
 - **Live delivery tracking** — WebSocket-driven GPS updates on Mapbox GL JS maps
-- **AI-assisted inventory** — local PaddleOCR bill/photo extraction with mandatory retailer review
+- **AI-assisted inventory** — Gemini extraction, optional local PaddleOCR fallback, and mandatory retailer review
 - **OSRM route planning** — real road-network routes with ETA estimation
 - **Three full dashboards** — Customer, Retailer, and Delivery Partner
+- **Role-specific access** — public home with separate customer, retailer, and rider sign-in flows
 - **Auto-location detection** — HTML5 GPS → IP geolocation → Nominatim fallback chain
 
 ---
@@ -96,7 +96,7 @@ with role-based routing.
 │  RETAILER                                                        │
 │  📋 View incoming order  →  ✅ Accept order                      │
 │  👨‍🍳 Prepare order       →  📦 Mark ready for pickup             │
-│  📷 Scan and review stock separately with PaddleOCR               │
+│  📷 Analyze and review stock separately with Gemini AI           │
 └──────────────┬───────────────────────────────────────────────────┘
                │
                ▼
@@ -135,14 +135,16 @@ flowchart TB
         RouteSvc["Routing Service (OSRM)"]
         GeoSvc["Geo Service (Haversine)"]
         ProductSvc["Product & Inventory Service"]
-        OCRSvc["Inventory OCR Service"]
-        Paddle["PaddleOCR CPU Engine"]
+        OCRSvc["Inventory Image Analyzer"]
+        Gemini["Gemini Structured Extraction"]
+        Paddle["Optional PaddleOCR Fallback"]
         RealtimeSvc["Realtime Service"]
         WS["WebSocket Hub"]
     end
 
     subgraph External["External Services"]
         OSRM["OSRM Routing Engine"]
+        GeminiAPI["Google Gemini API"]
         Mapbox["Mapbox GL JS Tiles"]
         Nominatim["Nominatim Geocoder"]
         IPGeo["ipwho.is Geolocation"]
@@ -164,7 +166,9 @@ flowchart TB
     RouteSvc --> OSRM
     ProductSvc --> DB
     Retailer --> OCRSvc
-    OCRSvc --> Paddle
+    OCRSvc --> Gemini
+    Gemini --> GeminiAPI
+    OCRSvc -.->|"Provider fallback"| Paddle
     OCRSvc --> ProductSvc
     RealtimeSvc --> WS
     WS -.->|"Live GPS"| Customer
@@ -189,7 +193,7 @@ flowchart TB
 | **Migrations** | Alembic |
 | **Authentication** | JWT tokens, bcrypt password hashing, role-based authorization |
 | **Routing Engine** | OSRM (Open Source Routing Machine) |
-| **Inventory OCR** | PaddleOCR 3.7.0 + PaddlePaddle 3.3.1, CPU-only, provider-neutral service |
+| **Inventory analysis** | Google Gemini structured extraction with optional local PaddleOCR/PaddlePaddle fallback |
 | **Geocoding** | Nominatim (reverse), ipwho.is (IP fallback) |
 | **Real-time** | FastAPI WebSockets, in-memory connection manager |
 | **Deployment** | Render web service + Neon PostgreSQL |
@@ -204,7 +208,7 @@ Dukaan2Door/
 │   ├── alembic/                    # Database migrations
 │   ├── app/
 │   │   ├── api/v1/endpoints/       # REST API endpoints
-│   │   │   ├── auth.py             # Login, register, token refresh
+│   │   │   ├── auth.py             # Login, registration, current user
 │   │   │   ├── orders.py           # Order CRUD, status tracking
 │   │   │   ├── deliveries.py       # Delivery assignment & tracking
 │   │   │   ├── products.py         # Product catalog & inventory
@@ -228,6 +232,7 @@ Dukaan2Door/
 │   │   │   ├── product_service.py
 │   │   │   ├── ocr_service.py
 │   │   │   ├── inventory_image_analyzer.py
+│   │   │   ├── gemini_inventory_analyzer.py
 │   │   │   ├── inventory_parser.py
 │   │   │   └── realtime_service.py
 │   │   └── main.py                 # FastAPI app entry
@@ -243,7 +248,8 @@ Dukaan2Door/
 │   │   │   ├── layout/             # Shared layout components
 │   │   │   └── ui/                 # Reusable UI primitives
 │   │   ├── pages/
-│   │   │   ├── auth/               # Unified login page
+│   │   │   ├── auth/               # Login gateway, role-specific login, registration
+│   │   │   ├── public/             # General project home and role entry points
 │   │   │   ├── customer/           # 17 pages (Home, Cart, Checkout, Tracking, Orders...)
 │   │   │   ├── retailer/           # 10 pages (Dashboard, Orders, Inventory, Store...)
 │   │   │   └── delivery/           # 7 pages (Dashboard, Available, Current, Earnings...)
@@ -324,14 +330,14 @@ Dukaan2Door/
 | **Routing** | `routing_service.py` | OSRM integration for road-network routes, distance, and ETA |
 | **Geo** | `geo_service.py` | Haversine distance calculation, coordinate validation |
 | **Products** | `product_service.py` | Catalog queries, category filtering, inventory checks |
-| **Inventory OCR** | `ocr_service.py`, `inventory_parser.py` | Shared PaddleOCR engine, normalized spatial text lines, conservative draft extraction |
+| **Inventory analysis** | `inventory_image_analyzer.py`, `gemini_inventory_analyzer.py`, `ocr_service.py` | Gemini structured extraction, optional local PaddleOCR fallback, and review-only drafts |
 | **Realtime** | `realtime_service.py` | WebSocket connection manager, event broadcasting |
 
 ### API Endpoints
 
 | Group | Base Path | Key Operations |
 |---|---|---|
-| **Auth** | `/api/auth` | Register, login, token refresh, current user |
+| **Auth** | `/api/auth` | Register, login, current user |
 | **Orders** | `/api/orders` | Create, list, status update, tracking, store details |
 | **Deliveries** | `/api/deliveries` | Claim/reject, accept, pickup, deliver, route, GPS tracking |
 | **Products** | `/api/products` | Browse catalog, search, category filter, inventory |
@@ -353,14 +359,15 @@ The delivery tracking system uses **authenticated WebSockets** for live updates:
 1. **Delivery partner** shares browser GPS coordinates or starts the controlled demo route
 2. **Backend** validates and relays position updates to connected clients
 3. **Customer** sees the same moving marker on a Mapbox map with an OSRM route overlay
-4. In the demo flow, acceptance starts an OSRM road-route playback to the store;
-   `OUT_FOR_DELIVERY` starts the road-route playback to the customer
+4. In local development, `OUT_FOR_DELIVERY` starts a clearly labelled OSRM
+   road-route demo playback from the rider's saved location to the customer
 5. Status changes (`PICKED_UP`, `OUT_FOR_DELIVERY`, `DELIVERED`) are broadcast
    in real time
 
-The demo playback writes the same authorized tracking updates as browser GPS,
-but it is not presented as real movement. Production riders should use browser
-GPS sharing. Tracking never advances order status automatically.
+The demo playback writes authorized tracking updates tagged
+`DEMO_SIMULATION`; it is never presented as real GPS. Production riders use
+browser GPS unless the deployed demo explicitly enables playback. Tracking
+never advances order status automatically.
 
 ```mermaid
 sequenceDiagram
@@ -399,7 +406,10 @@ sequenceDiagram
 | `order_items` | Line items with product, quantity, and price |
 | `delivery_partners` | Partner profiles, vehicle info, availability, coordinates |
 | `deliveries` | Delivery records linking orders to partners |
-| `delivery_tracking` | GPS breadcrumb trail with timestamps and accuracy |
+| `delivery_tracking` | GPS/demo breadcrumb trail with source, timestamp, status, and accuracy |
+| `delivery_rejections` | Rider rejection history without cancelling the customer order |
+
+The current non-destructive Alembic head is `20261011_0007`.
 
 ### Data Ingestion Pipeline
 
@@ -417,7 +427,7 @@ datasets that don't contain them.
 
 ### Prerequisites
 
-- Python 3.11-3.13 (PaddlePaddle does not provide a Python 3.14 wheel)
+- Python 3.11 recommended (required for the optional tested PaddleOCR fallback)
 - Node.js 18+
 - PostgreSQL (or a [Neon](https://neon.tech/) database URL)
 
@@ -435,13 +445,12 @@ python -m alembic upgrade head
 uvicorn app.main:app --reload --port 8080
 ```
 
-If `python --version` reports 3.14, do not reuse that virtual environment for
-OCR. Install Python 3.11-3.13 or use the container workflow below.
-
-Inventory analysis runs locally through PaddleOCR on the backend CPU. Local
-development downloads the selected models on first use, then reuses one lazy
-process-level model. The Docker image caches those files at build time so a
-production request does not trigger a download. No OCR API key is required.
+Inventory analysis uses Gemini when `GEMINI_API_KEY` is configured. The base
+requirements do not install the much larger Paddle runtime. To enable the
+optional local provider tested by this repository, use Python 3.11 and install
+`paddleocr==3.7.0` with `paddlepaddle==3.3.1`. If neither provider succeeds,
+manual entry remains available. Paddle models load lazily and are reused per
+process.
 
 ### Backend with Docker or Podman
 
@@ -501,44 +510,57 @@ npm run preview -- --host 0.0.0.0
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry in minutes | ✅ |
 | `CORS_ORIGINS` | Comma-separated allowed origins | ✅ |
 | `OSRM_BASE_URL` | OSRM server URL for routing | ✅ |
+| `GEMINI_API_KEY` | Server-only Gemini key for inventory document analysis | Required for Gemini |
+| `GEMINI_MODEL` | Gemini model ID (default: `gemini-2.5-flash-lite`) | Optional |
 | `PADDLE_OCR_DETECTION_MODEL` | Detection model (default: `PP-OCRv6_small_det`) | Optional |
 | `PADDLE_OCR_RECOGNITION_MODEL` | Recognition model (default: `PP-OCRv6_medium_rec`) | Optional |
-| `PADDLE_OCR_CPU_THREADS` | CPU inference threads per backend process (default: `2`) | Optional |
-| `PADDLE_OCR_MAX_IMAGE_SIDE` | Maximum image dimension before resizing (default: `2400`) | Optional |
+| `PADDLE_OCR_CPU_THREADS` | CPU inference threads per backend process (default: `4`) | Optional |
+| `PADDLE_OCR_MAX_IMAGE_SIDE` | Maximum image dimension before resizing (default: `1600`) | Optional |
 | `PADDLE_OCR_MAX_IMAGE_PIXELS` | Reject decompressed images above this pixel count (default: `25000000`) | Optional |
 | `PADDLE_OCR_MAX_PDF_PAGES` | Maximum accepted PDF pages (default: `10`) | Optional |
 | `PADDLE_OCR_LOW_CONFIDENCE` | Review-warning threshold (default: `0.70`) | Optional |
-| `PADDLE_OCR_COMPARE_PREPROCESSED` | Compare original and mildly enhanced image results | Optional |
+| `PADDLE_OCR_COMPARE_PREPROCESSED` | Compare original and mildly enhanced image results (default: `false`) | Optional |
+| `PADDLE_OCR_USE_ORIENTATION` | Enable Paddle document/text-line orientation models (default: `false`) | Optional |
 
 ### Inventory Image Onboarding
 
-Inventory image analysis uses the official open-source [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) project on the FastAPI server. The backend pins `paddleocr==3.7.0` and `paddlepaddle==3.3.1`, uses a compact PP-OCRv6 detector with the more accurate medium recognizer, and performs CPU inference. Paddle confidence values and bounding polygons are preserved in provider-neutral application structures.
+Inventory image analysis uses the Gemini API for structured product extraction.
+The key remains server-side. When the optional Paddle packages are installed,
+the provider-neutral analyzer can fall back to local
+[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) for quota and transient
+provider errors. Neither path writes inventory directly.
 
-Retailers can open **Inventory** and select **Add Inventory**. A JPG, PNG, or PDF (maximum 5 MB) is processed by the backend. Detected rows are drafts: the retailer can edit or remove each row before **Confirm and add inventory** writes anything to the catalogue. If OCR cannot read an image, the retailer can use the manual entry path; no sample inventory is generated.
+Retailers can open **Inventory** and select **Add Inventory**. A JPG, PNG, WEBP,
+or PDF (maximum 5 MB) is processed by Gemini; the optional Paddle provider
+supports JPG, PNG, and PDF. Detected rows are drafts: the retailer can edit or
+remove each row before **Confirm and add inventory** writes anything to the
+catalogue. If analysis cannot read an image, the retailer can use the manual
+entry path; no sample inventory is generated.
 
 ```text
 Retailer upload
   -> FastAPI validation and preprocessing
-  -> shared local PaddleOCR CPU engine
-  -> provider-neutral OCR lines
-  -> conservative inventory parser
+  -> Gemini structured extraction
+  -> optional local PaddleOCR/parser fallback when available
+  -> provider-neutral product candidates
   -> mandatory retailer review
   -> confirmed inventory transaction
 ```
 
 The backend validates the MIME type, extension, file size, image integrity,
-dimensions, and PDF page count first. It applies EXIF orientation and bounded
-resizing, then compares original-image recognition with conservative grayscale,
-contrast, and sharpening preprocessing. The model is initialized lazily once
-per backend process and guarded for thread-safe inference. Handwriting remains
-best effort; low-confidence or incomplete rows are highlighted for review.
+dimensions, and PDF page count first. The local provider applies EXIF
+orientation and bounded resizing; optional preprocessing comparison adds
+conservative grayscale, contrast, and sharpening. Its model is initialized
+lazily once per backend process and guarded for thread-safe inference.
+Handwriting remains best effort; low-confidence or incomplete rows are
+highlighted for review.
 
 Confirmed stock is store-specific. Exact reviewed name-and-brand matches increase the existing inventory row; otherwise a new product is created after confirmation. Every manual/image-assisted increase and existing order decrement is recorded in inventory adjustment history.
 
-### Measured OCR deployment profile
+### Measured local fallback profile
 
-The Python 3.11 CPU container was tested locally with the production model
-configuration and one generated clean receipt:
+A Paddle-enabled Python 3.11 CPU image was tested locally with the selected
+model configuration and one generated clean receipt:
 
 | Measurement | Result |
 |---|---|
@@ -551,7 +573,8 @@ configuration and one generated clean receipt:
 | Offline OCR from embedded models | 7.5s |
 | Generated receipt extraction | 3/3 product names, quantities, and prices |
 
-This is a small deployment smoke test, not a general accuracy claim. No
+This measures the PaddleOCR fallback, not Gemini latency or accuracy. It is a
+small deployment smoke test, not a general accuracy claim. No
 representative real kirana bill or handwriting benchmark images are committed
 to this repository, so real-bill and neat/poor-handwriting accuracy remains
 unmeasured. Add private samples to the ignored benchmark directory and run the
@@ -562,15 +585,20 @@ To inspect OCR output and processing time for a real image from the repository r
 ```bash
 source backend/.venv/bin/activate
 python scripts/test_paddle_ocr.py /path/to/real-bill.jpg
-python scripts/benchmark_paddle_ocr.py benchmarks/inventory_ocr/manifest.json
+python scripts/test_gemini_inventory.py /path/to/real-bill.jpg
+python scripts/benchmark_gemini_inventory.py benchmarks/inventory_ocr/manifest.json
 ```
 
 ### Frontend (`frontend/.env`)
 
 | Variable | Description | Required |
 |---|---|---|
-| `VITE_API_BASE_URL` | Backend API base URL | ✅ |
+| `VITE_API_URL` | Backend API base URL | ✅ |
+| `VITE_WS_URL` | Backend WebSocket base URL | ✅ |
 | `VITE_MAPBOX_TOKEN` | Mapbox public token for map tiles | Optional |
+| `VITE_CUSTOMER_STORE_ID` | Operational store ID exposed in the single-store customer catalog | ✅ |
+| `VITE_ENABLE_DEMO_ROUTE_PLAYBACK` | Enable labelled OSRM route playback in a deployed demo; local Vite development enables it automatically | Optional |
+| `VITE_DEMO_ROUTE_DURATION_SECONDS` | Customer-bound demo playback duration, clamped to 15–180 seconds (default: `45`) | Optional |
 
 ---
 
@@ -617,7 +645,7 @@ cd backend
 python -m pytest -q
 ```
 
-**Result:** `63 passed`
+**Current verified result:** `104 passed`
 
 Test coverage includes:
 - API endpoint validation
@@ -625,13 +653,13 @@ Test coverage includes:
 - Authentication and authorization
 - Backend integration workflows
 - Security checks
-- PaddleOCR result normalization, confidence/polygon propagation, and inventory parsing
+- Gemini extraction/error handling and PaddleOCR fallback parsing
 - Inventory review/confirmation safety and duplicate stock updates
 - Rider claim locking, rejection, and special-equipment eligibility
 
 ### OCR-Specific Tests
 
-These tests mock PaddleOCR inference and never initialize or download models:
+These tests mock provider inference and do not download models:
 
 ```bash
 cd backend
@@ -642,13 +670,15 @@ python -m pytest tests/test_inventory_ocr.py -q
 
 ### Frontend Validation
 
+Run the focused frontend regression suite and production build:
+
 ```bash
 cd frontend
+npm test
 npm run build
 ```
 
-The frontend currently has no separate ESLint or automated test script in
-`package.json`; `npm run build` performs the available TypeScript validation.
+**Current verified result:** `12 passed`; TypeScript and Vite build passed.
 
 ### Compile Check
 
@@ -685,8 +715,11 @@ visibility. Refuses non-local URLs unless `--allow-remote` is supplied.
 | `profile_datasets.py` | Profile and analyze dataset quality |
 | `verify_neon_demo_workflow.py` | Verify Neon database demo readiness |
 | `verify_blinkit_integration.py` | Validate Blinkit data integration |
-| `test_paddle_ocr.py` | Optional real PaddleOCR extraction with text, confidence, polygons, drafts, and timing |
-| `benchmark_paddle_ocr.py` | Manifest-driven OCR field-accuracy and processing-time benchmark |
+| `test_paddle_ocr.py` | Optional local PaddleOCR extraction with text, confidence, polygons, drafts, and timing |
+| `test_gemini_inventory.py` | One-image Gemini extraction and structured-candidate inspection |
+| `benchmark_paddle_ocr.py` | Manifest-driven local PaddleOCR accuracy and latency benchmark |
+| `benchmark_gemini_inventory.py` | Manifest-driven Gemini field-accuracy, missing/extra-row, failure, and latency benchmark |
+| `verify_postgres_inventory.py` | Isolated PostgreSQL migration, replay, ownership, and rollback verifier |
 
 ---
 
@@ -701,10 +734,11 @@ with a **Neon PostgreSQL** database.
 uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-Render supplies `PORT` at runtime. Run `python -m alembic upgrade head` as a
-pre-deploy command. No OCR API key is needed. The included Python 3.11 image
-installs CPU-only PaddleOCR/PaddlePaddle and caches the four selected models
-during the image build.
+Render supplies `PORT` at runtime. Follow
+[the Neon migration runbook](docs/neon-migration-runbook.md) before deployment.
+Configure `GEMINI_API_KEY` only in the backend service. The Python 3.11 image
+uses the base requirements and does not install PaddleOCR unless the deployment
+is deliberately extended with the optional CPU packages.
 
 ### Architecture Notes
 
@@ -713,14 +747,15 @@ during the image build.
 - Multi-instance deployment would require shared pub/sub infrastructure
   (e.g., Redis)
 - Database connections use SQLAlchemy with the PostgreSQL `psycopg2` driver
-- OCR is CPU and memory intensive; use a single worker until measured resources
-  justify more workers because each process has its own model instance
-- The measured Python 3.11 container is about 2 GB before cached models; the
-  four models occupy 97 MiB and OCR reached 733 MiB RSS in local testing
-- Use at least 1 GiB RAM for one worker; 2 GiB is preferred for operational
-  headroom. A 512 MiB Render instance is insufficient for this configuration
-- Native Render builds must pin Python 3.11-3.13. Docker deployment is preferred
-  because it caches model files and avoids a request-time download
+- Optional local OCR is CPU and memory intensive; use a single worker until
+  measured resources justify more because each process owns a model instance
+- The measured Paddle-enabled Python 3.11 image was 1.89 GB, its cached models
+  occupied 97 MiB, and repeated local OCR reached 733 MiB RSS
+- A Paddle-enabled deployment needs at least 1 GiB RAM; 2 GiB is preferred for
+  operational headroom. These limits do not describe the standard Gemini-only
+  image
+- Paddle-enabled builds must use a compatible Python version and should cache
+  model files rather than downloading them during the first production request
 - Frontend can be deployed as a static build (`npm run build`) to any CDN
 
 ---
@@ -730,14 +765,14 @@ during the image build.
 | Document | Description |
 |---|---|
 | 📚 [Documentation Hub](docs/README.md) | Central index and navigation hub for all project documentation |
-| 🔌 [API Reference & WebSockets](docs/api-reference.md) | Full REST API specification, request/response models, and WebSockets |
-| 🗄️ [Database Schema & ERD](docs/database-schema.md) | Entity relationship diagrams, table structures, and migrations |
-| 💻 [Frontend Architecture](docs/frontend-architecture.md) | 3-Portal UI design, state management, maps, and geolocation |
-| 🗺️ [Backend Architecture](docs/backend-architecture.md) | Service layer, store matching algorithms, and state machines |
+| 🗺️ [Interactive Runtime Architecture](docs/dukaan2door-architecture.html) | Current frontend, backend, database, external services, trust boundaries, and primary runtime path |
 | 🚀 [Deployment Guide](docs/deployment-guide.md) | Production setup for Render, Neon, Vercel, and OSRM |
 | 🧪 [Testing Guide](docs/testing-guide.md) | Step-by-step parallel manual test walkthrough |
 | 👥 [Testing Users & Story](docs/testing-users-and-flow.md) | Demo account credentials and automated API test flow |
-| ⚡ [Neon Operational Readiness](docs/neon-operational-readiness.md) | Serverless Postgres configuration and readiness checks |
+| 🧭 [Neon Migration Runbook](docs/neon-migration-runbook.md) | Controlled migration, verification, and recovery steps |
+| 🤖 [Gemini Demo Readiness](docs/gemini-demo-readiness.md) | Quota, fallback, privacy, and pre-demo checks |
+| 📍 [Live Tracking Validation](docs/live-tracking-validation.md) | Two-device real-GPS acceptance procedure |
+| 🛣️ [Rider GPS and Routing](docs/rider-gps-routing-fix.md) | Current GPS pipeline, route alignment, and labelled local demo playback |
 | 📊 [Data Ingestion Pipeline](docs/data-ingestion.md) | External dataset staging, provenance, and data cleaning |
 
 ---
@@ -746,6 +781,6 @@ during the image build.
 
 **Built with ❤️ for local retailers and their communities**
 
-[FastAPI](https://fastapi.tiangolo.com/) · [React](https://react.dev/) · [Neon](https://neon.tech/) · [Mapbox](https://www.mapbox.com/) · [OSRM](https://project-osrm.org/) · [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
+[FastAPI](https://fastapi.tiangolo.com/) · [React](https://react.dev/) · [Neon](https://neon.tech/) · [Mapbox](https://www.mapbox.com/) · [OSRM](https://project-osrm.org/) · [Gemini](https://ai.google.dev/gemini-api/docs)
 
 </div>

@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Navigation, RotateCw } from 'lucide-react';
 import { deliveryService } from '../../services/deliveryService';
+import { ApiError } from '../../services/api';
 import { RouteGeometry } from '../../types/delivery';
+import { distanceMeters } from '../../utils/trackingGeometry';
+import { ACTIVE_TRACKING_STATUSES, geolocationErrorMessage, isValidGpsCoordinate, startLocationWatch } from '../../utils/locationTracking';
 
 interface PartnerLocationTrackerProps {
   deliveryId: number;
-  onLocationUpdated?: (lat: number, lng: number, accuracyM?: number) => void;
+  onLocationUpdated?: (lat: number, lng: number, accuracyM: number | undefined, recordedAt: string, heading: number | null) => void;
   defaultLat?: number;
   defaultLng?: number;
   pickupLat?: number;
@@ -12,235 +16,104 @@ interface PartnerLocationTrackerProps {
   destinationLat?: number;
   destinationLng?: number;
   routeGeometry?: RouteGeometry | null;
-  autoStartSimulation?: boolean;
   deliveryStatus?: string;
+  disabled?: boolean;
 }
 
-export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({
-  deliveryId,
-  onLocationUpdated,
-  defaultLat = 23.0232,
-  defaultLng = 72.5722,
-  pickupLat,
-  pickupLng,
-  destinationLat,
-  destinationLng,
-  routeGeometry,
-  autoStartSimulation = false,
-  deliveryStatus,
-}) => {
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [isError, setIsError] = useState(false);
-  const [manualLat, setManualLat] = useState<number>(defaultLat);
-  const [manualLng, setManualLng] = useState<number>(defaultLng);
-  const [isLive, setIsLive] = useState(false);
-  const [accuracyM, setAccuracyM] = useState<number | null>(null);
-  const [isSimulating, setIsSimulating] = useState(false);
-  const watchIdRef = useRef<number | null>(null);
-  const simulationTimerRef = useRef<number | null>(null);
-  const simulationIndexRef = useRef(0);
-  const startedSimulationPhaseRef = useRef<string | null>(null);
-  const deliveryStatusRef = useRef(deliveryStatus);
-  const SIMULATION_INTERVAL_MS = 2500;
-  const SIMULATION_STEPS = 60; // 60 x 2.5 seconds = 2.5 minutes
-
-  const sendLocation = async (lat: number, lng: number, accuracy?: number, source = 'GPS') => {
-    if (deliveryStatusRef.current === 'DELIVERED' || deliveryStatusRef.current === 'CANCELLED') {
-      return;
-    }
-    setIsUpdating(true);
-    setStatusMessage(null);
-    setIsError(false);
-    try {
-      await deliveryService.updateLocation(deliveryId, lat, lng, accuracy);
-      setAccuracyM(accuracy ?? null);
-      setStatusMessage(`${source} position sent${accuracy ? ` ±${Math.round(accuracy)}m` : ''}`);
-      if (onLocationUpdated) {
-        onLocationUpdated(lat, lng, accuracy);
-      }
-    } catch (err: any) {
-      setIsError(true);
-      setStatusMessage(err.message || 'Failed to update live coordinates');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const getSimulationPath = async (): Promise<Array<[number, number]>> => {
-    const hasCoordinates = (values: Array<number | undefined>): values is number[] => values.every((value) => Number.isFinite(value));
-    const hasPickup = hasCoordinates([pickupLat, pickupLng]);
-    const hasPickupAndDestination = hasCoordinates([pickupLat, pickupLng, destinationLat, destinationLng]);
-    const routePoints = routeGeometry?.coordinates
-      ?.filter((point) => point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]))
-      .map(([lng, lat]) => [lat, lng] as [number, number]);
-    if (!hasPickup || (deliveryStatus !== 'ACCEPTED' && !hasPickupAndDestination)) {
-      return [];
-    }
-
-    const pickup: [number, number] = [pickupLat!, pickupLng!];
-    const destination: [number, number] = [destinationLat!, destinationLng!];
-    const start: [number, number] = hasCoordinates([defaultLat, defaultLng])
-      ? [defaultLat!, defaultLng!]
-      : pickup;
-    const isAtPickup = start[0] === pickup[0] && start[1] === pickup[1];
-    const approachRoute = isAtPickup
-      ? null
-      : await deliveryService.getRoute(deliveryId, { lat: start[0], lng: start[1] });
-    const approachCoordinates = approachRoute?.geometry?.coordinates as Array<[number, number]> | undefined;
-    const approachPoints = approachCoordinates
-      ?.filter((point) => point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]))
-      .map(([lng, lat]) => [lat, lng] as [number, number]);
-    if (!isAtPickup && (!approachPoints || approachPoints.length < 2)) {
-      throw new Error('OSRM returned no road geometry for the rider-to-store route');
-    }
-    const roadApproachPoints = isAtPickup ? [pickup] : approachPoints!;
-    const approachSteps = deliveryStatus === 'ACCEPTED'
-      ? SIMULATION_STEPS
-      : roadApproachPoints.length > 1 ? Math.min(20, SIMULATION_STEPS - 1) : 0;
-    const points: Array<[number, number]> = [];
-
-    // Keep both legs on OSRM road geometry: rider -> pickup -> customer.
-    for (let step = 0; step <= approachSteps; step += 1) {
-      const position = (step / Math.max(approachSteps, 1)) * (roadApproachPoints.length - 1);
-      const lower = Math.floor(position);
-      const upper = Math.min(Math.ceil(position), roadApproachPoints.length - 1);
-      const fraction = position - lower;
-      points.push([
-        roadApproachPoints[lower][0] + (roadApproachPoints[upper][0] - roadApproachPoints[lower][0]) * fraction,
-        roadApproachPoints[lower][1] + (roadApproachPoints[upper][1] - roadApproachPoints[lower][1]) * fraction,
-      ]);
-    }
-    if (deliveryStatus === 'ACCEPTED') return points;
-    if (!routePoints || routePoints.length < 2) {
-      throw new Error('OSRM returned no road geometry for the customer route');
-    }
-    const sourcePoints = routePoints;
-    const deliverySteps = SIMULATION_STEPS - approachSteps;
-    for (let step = 1; step <= deliverySteps; step += 1) {
-      const position = (step / deliverySteps) * (sourcePoints.length - 1);
-      const lower = Math.floor(position);
-      const upper = Math.min(Math.ceil(position), sourcePoints.length - 1);
-      const fraction = position - lower;
-      points.push([
-        sourcePoints[lower][0] + (sourcePoints[upper][0] - sourcePoints[lower][0]) * fraction,
-        sourcePoints[lower][1] + (sourcePoints[upper][1] - sourcePoints[lower][1]) * fraction,
-      ]);
-    }
-    return points;
-  };
-
-  const stopSimulation = () => {
-    if (simulationTimerRef.current !== null) {
-      window.clearInterval(simulationTimerRef.current);
-      simulationTimerRef.current = null;
-    }
-    setIsSimulating(false);
-  };
-
+export const PartnerLocationTracker: React.FC<PartnerLocationTrackerProps> = ({ deliveryId, deliveryStatus, onLocationUpdated, disabled = false }) => {
+  const callback = useRef(onLocationUpdated);
+  callback.current = onLocationUpdated;
+  const [message, setMessage] = useState('Waiting for device location');
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const active = !disabled && ACTIVE_TRACKING_STATUSES.includes(deliveryStatus as typeof ACTIVE_TRACKING_STATUSES[number]);
   useEffect(() => {
-    deliveryStatusRef.current = deliveryStatus;
-    if (deliveryStatus === 'DELIVERED' || deliveryStatus === 'CANCELLED') {
-      stopSimulation();
-    }
-  }, [deliveryStatus]);
+    if (!active) return;
+    if (!navigator.geolocation) { setFailed(true); setMessage('Location sharing is unavailable in this browser.'); return; }
+    let cancelled = false;
+    let sending = false;
+    let pendingTimer: number | null = null;
+    let queuedPosition: GeolocationPosition | null = null;
+    let lastAccepted: { lat: number; lng: number; sentAt: number } | null = null;
+    setFailed(false);
+    setMessage('Waiting for device location permission');
 
-  const handleSimulation = async () => {
-    if (isSimulating) {
-      stopSimulation();
-      setStatusMessage('Demo drive stopped');
-      return;
-    }
-    let path: Array<[number, number]>;
-    try {
-      path = await getSimulationPath();
-    } catch (err: any) {
-      setIsError(true);
-      setStatusMessage(err.message || 'Road route is not available for simulation');
-      return;
-    }
-    if (path.length < 2) {
-      setIsError(true);
-      setStatusMessage('Route coordinates are not available for simulation');
-      return;
-    }
-    simulationIndexRef.current = 0;
-    setIsSimulating(true);
-    setStatusMessage('Demo drive started');
-    const sendNextPoint = () => {
-      const point = path[simulationIndexRef.current];
-      if (!point) {
-        stopSimulation();
-        setStatusMessage('Demo drive completed at the customer');
+    const sendPosition = async (position: GeolocationPosition) => {
+      const { coords, timestamp } = position;
+      if (cancelled || !isValidGpsCoordinate(coords.latitude, coords.longitude)) return;
+      if (Date.now() - timestamp > 30000) {
+        setFailed(true);
+        setMessage('GPS reading is stale. Waiting for a fresh device location.');
         return;
       }
-      setManualLat(point[0]);
-      setManualLng(point[1]);
-      void sendLocation(point[0], point[1], undefined, 'Demo drive');
-      simulationIndexRef.current += 1;
+      if (lastAccepted) {
+        const movedM = distanceMeters(
+          { lat: lastAccepted.lat, lng: lastAccepted.lng },
+          { lat: coords.latitude, lng: coords.longitude },
+        );
+        if (movedM < 3 && Date.now() - lastAccepted.sentAt < 15000) return;
+        if (Date.now() - lastAccepted.sentAt < 3000) {
+          queuedPosition = position;
+          return;
+        }
+      }
+      if (sending) {
+        queuedPosition = position;
+        return;
+      }
+      sending = true;
+      try {
+        const accepted = await deliveryService.updateLocation(
+          deliveryId,
+          coords.latitude,
+          coords.longitude,
+          coords.accuracy,
+          new Date(timestamp).toISOString(),
+        );
+        if (!cancelled) {
+          lastAccepted = { lat: accepted.latitude, lng: accepted.longitude, sentAt: Date.now() };
+          const heading = coords.speed != null && coords.speed >= 1 && coords.heading != null && Number.isFinite(coords.heading)
+            ? coords.heading : null;
+          callback.current?.(accepted.latitude, accepted.longitude, accepted.accuracy_m ?? undefined, accepted.recorded_at, heading);
+          const weak = coords.accuracy > 60;
+          setFailed(weak);
+          setMessage(`${weak ? 'GPS signal weak' : 'Location updating'} · accuracy ±${Math.round(coords.accuracy)} m · just now`);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFailed(true);
+          setMessage(error instanceof ApiError && error.status === 409
+            ? 'An older GPS reading was ignored. Waiting for a fresh location.'
+            : 'Connection interrupted. GPS is available, but the location could not be shared.');
+        }
+      } finally {
+        sending = false;
+        const queued = queuedPosition;
+        queuedPosition = null;
+        if (queued && !cancelled) {
+          if (pendingTimer != null) window.clearTimeout(pendingTimer);
+          pendingTimer = window.setTimeout(() => {
+            pendingTimer = null;
+            void sendPosition(queued);
+          }, 3000);
+        }
+      }
     };
-    sendNextPoint();
-    simulationTimerRef.current = window.setInterval(sendNextPoint, SIMULATION_INTERVAL_MS);
-  };
 
-  useEffect(() => {
-    const phase = deliveryStatus === 'ACCEPTED' ? 'TO_PICKUP' : deliveryStatus === 'OUT_FOR_DELIVERY' ? 'TO_CUSTOMER' : null;
-    if (!autoStartSimulation || !phase || startedSimulationPhaseRef.current === phase) return;
-    if (deliveryStatus !== 'ACCEPTED' && !routeGeometry?.coordinates?.length) return;
-    startedSimulationPhaseRef.current = phase;
-    void handleSimulation();
-  }, [autoStartSimulation, deliveryStatus, routeGeometry, defaultLat, defaultLng]);
-
-  const handleBrowserGPS = () => {
-    if (!navigator.geolocation) {
-      setIsError(true);
-      setStatusMessage('Geolocation is not supported by your browser');
-      return;
-    }
-
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-      setIsLive(false);
-      setStatusMessage('Live GPS sharing stopped');
-      return;
-    }
-
-    setIsLive(true);
-    setStatusMessage('Waiting for a high-accuracy GPS fix...');
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const accuracy = Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : undefined;
-        setManualLat(latitude);
-        setManualLng(longitude);
-        void sendLocation(latitude, longitude, accuracy);
-      },
+    const stopWatching = startLocationWatch(
+      navigator.geolocation,
+      (position) => void sendPosition(position),
       (error) => {
-        setIsLive(false);
-        watchIdRef.current = null;
-        setIsUpdating(false);
-        setIsError(true);
-        setStatusMessage(`GPS error: ${error.message}. You can use manual coordinates below.`);
+        if (!cancelled) { setFailed(true); setMessage(geolocationErrorMessage(error)); }
       },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
-  };
-
-  useEffect(() => () => {
-    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
-    if (simulationTimerRef.current !== null) window.clearInterval(simulationTimerRef.current);
-  }, []);
-
-  // The profile is loaded after this component mounts. Keep the demo's starting
-  // point aligned with the persisted rider GPS until the rider edits it or
-  // starts live/simulated tracking.
-  useEffect(() => {
-    if (!isLive && !isSimulating && Number.isFinite(defaultLat) && Number.isFinite(defaultLng)) {
-      setManualLat(defaultLat);
-      setManualLng(defaultLng);
-    }
-  }, [defaultLat, defaultLng, isLive, isSimulating]);
-
-  return null;
+    return () => {
+      cancelled = true;
+      queuedPosition = null;
+      if (pendingTimer != null) window.clearTimeout(pendingTimer);
+      stopWatching();
+    };
+  }, [active, deliveryId, attempt]);
+  if (!active) return null;
+  return <div role="status" className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 text-xs ${failed ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}><Navigation className="h-4 w-4 shrink-0" /><span className="flex-1">{message}</span>{failed && <button onClick={() => setAttempt(value => value + 1)} className="flex min-h-10 items-center gap-1 font-bold"><RotateCw className="h-4 w-4" />Retry GPS</button>}</div>;
 };

@@ -48,8 +48,8 @@ export const OrderStatusTimeline: React.FC<OrderStatusTimelineProps> = ({
       ) : (
         <div className="space-y-0">
           {TIMELINE_STEPS.map((step, idx) => {
-            const isCompleted = currentIdx > idx;
-            const isCurrent = currentIdx === idx;
+            const isCompleted = currentIdx > idx || currentStatus === 'DELIVERED';
+            const isCurrent = currentIdx === idx && currentStatus !== 'DELIVERED';
             const isPending = currentIdx < idx;
 
             return (

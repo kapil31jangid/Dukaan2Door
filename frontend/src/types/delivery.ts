@@ -6,6 +6,8 @@ export type DeliveryStatus =
   | 'DELIVERED'
   | 'CANCELLED';
 
+export type DeliveryLocationSource = 'GPS' | 'DEMO_SIMULATION' | 'LIFECYCLE';
+
 export interface Delivery {
   id: number;
   order_id: number;
@@ -35,6 +37,7 @@ export interface DeliveryTrackingPoint {
   latitude: number;
   longitude: number;
   accuracy_m?: number | null;
+  source?: DeliveryLocationSource;
   status?: DeliveryStatus | null;
   recorded_at: string;
 }

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -245,6 +245,7 @@ def update_delivery_status(db: Session, delivery: Delivery, target_status: Deliv
             delivery_id=delivery.id,
             lat=delivery.delivery_partner.current_lat if delivery.delivery_partner else delivery.pickup_lat,
             lng=delivery.delivery_partner.current_lng if delivery.delivery_partner else delivery.pickup_lng,
+            source="LIFECYCLE",
             status=target_status,
         )
     )
@@ -265,14 +266,51 @@ def record_location_update(
     latitude: float,
     longitude: float,
     accuracy_m: Optional[float] = None,
+    captured_at: Optional[datetime] = None,
+    source: str = "GPS",
 ) -> DeliveryTracking:
     if delivery.status in {DeliveryStatus.DELIVERED, DeliveryStatus.CANCELLED}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Location updates are not allowed after a delivery is complete",
         )
+    if delivery.status not in {DeliveryStatus.ACCEPTED, DeliveryStatus.PICKED_UP, DeliveryStatus.OUT_FOR_DELIVERY}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Accept the delivery before sharing location",
+        )
 
     validate_coordinates(latitude, longitude)
+    if not partner or delivery.delivery_partner_id != partner.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the assigned delivery partner can update this location")
+
+    now = datetime.now(timezone.utc)
+    captured = captured_at or now
+    if captured.tzinfo is None:
+        captured = captured.replace(tzinfo=timezone.utc)
+    captured = captured.astimezone(timezone.utc)
+    if captured < now - timedelta(minutes=2):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stale location update")
+    if captured > now + timedelta(minutes=1):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Location timestamp is in the future")
+
+    # Lock the delivery row so concurrent requests cannot let an older capture
+    # commit after a newer one. Lifecycle audit points must not participate in
+    # movement ordering.
+    db.query(Delivery).filter(Delivery.id == delivery.id).with_for_update().one()
+    latest_gps = (
+        db.query(DeliveryTracking)
+        .filter(
+            DeliveryTracking.delivery_id == delivery.id,
+            DeliveryTracking.source != "LIFECYCLE",
+        )
+        .order_by(DeliveryTracking.recorded_at.desc(), DeliveryTracking.id.desc())
+        .first()
+    )
+    captured_naive = captured.replace(tzinfo=None)
+    if latest_gps and latest_gps.recorded_at >= captured_naive:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Out-of-order location update")
+
     partner.current_lat = latitude
     partner.current_lng = longitude
     update = DeliveryTracking(
@@ -280,7 +318,9 @@ def record_location_update(
         lat=latitude,
         lng=longitude,
         accuracy_m=accuracy_m,
+        source=source,
         status=delivery.status,
+        recorded_at=captured_naive,
     )
     db.add(update)
     db.commit()

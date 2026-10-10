@@ -1,54 +1,57 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
-import { AppLayout } from './components/layout/AppLayout';
+const named = <T extends React.ComponentType<any>>(
+  loader: () => Promise<Record<string, unknown>>,
+  exportName: string,
+) => lazy(async () => ({ default: (await loader())[exportName] as T }));
 
-// Auth Pages
-import { LoginPage } from './pages/auth/LoginPage';
-import { RoleLoginPage } from './pages/auth/RoleLoginPage';
-import { RegisterPage } from './pages/auth/RegisterPage';
-import { PublicHomePage } from './pages/public/PublicHomePage';
+const AppLayout = named(() => import('./components/layout/AppLayout'), 'AppLayout');
+const CustomerLayout = named(() => import('./components/customer/CustomerLayout'), 'CustomerLayout');
+const LoginPage = named(() => import('./pages/auth/LoginPage'), 'LoginPage');
+const RoleLoginPage = named(() => import('./pages/auth/RoleLoginPage'), 'RoleLoginPage');
+const RegisterPage = named(() => import('./pages/auth/RegisterPage'), 'RegisterPage');
+const PublicHomePage = named(() => import('./pages/public/PublicHomePage'), 'PublicHomePage');
+const RetailerHomePage = named(() => import('./pages/retailer/RetailerHomePage'), 'RetailerHomePage');
+const RetailerOrdersPage = named(() => import('./pages/retailer/RetailerOrdersPage'), 'RetailerOrdersPage');
+const RetailerStorePage = named(() => import('./pages/retailer/RetailerStorePage'), 'RetailerStorePage');
+const RetailerMenuPage = named(() => import('./pages/retailer/RetailerMenuPage'), 'RetailerMenuPage');
+const RetailerStoreOverviewPage = named(() => import('./pages/retailer/RetailerStoreOverviewPage'), 'RetailerStoreOverviewPage');
+const RetailerBusinessSettingsPage = named(() => import('./pages/retailer/RetailerBusinessSettingsPage'), 'RetailerBusinessSettingsPage');
+const RetailerPerformancePage = named(() => import('./pages/retailer/RetailerPerformancePage'), 'RetailerPerformancePage');
+const RetailerHelpPage = named(() => import('./pages/retailer/RetailerHelpPage'), 'RetailerHelpPage');
+const RetailerInventoryPage = named(() => import('./pages/retailer/RetailerInventoryPage'), 'RetailerInventoryPage');
+const CurrentDeliveryPage = named(() => import('./pages/delivery/CurrentDeliveryPage'), 'CurrentDeliveryPage');
+const DeliveryHomePage = named(() => import('./pages/delivery/DeliveryHomePage'), 'DeliveryHomePage');
+const DeliveryHistoryPage = named(() => import('./pages/delivery/DeliveryHistoryPage'), 'DeliveryHistoryPage');
+const AvailableOrdersPage = named(() => import('./pages/delivery/AvailableOrdersPage'), 'AvailableOrdersPage');
+const DeliveryEarningsPage = named(() => import('./pages/delivery/DeliveryEarningsPage'), 'DeliveryEarningsPage');
+const DeliveryProfilePage = named(() => import('./pages/delivery/DeliveryProfilePage'), 'DeliveryProfilePage');
+const HomePage = named(() => import('./pages/customer/HomePage'), 'HomePage');
+const LocationPage = named(() => import('./pages/customer/LocationPage'), 'LocationPage');
+const StorePage = named(() => import('./pages/customer/StorePage'), 'StorePage');
+const ProductListingPage = named(() => import('./pages/customer/ProductListingPage'), 'ProductListingPage');
+const SearchPage = named(() => import('./pages/customer/SearchPage'), 'SearchPage');
+const ProductDetailPage = named(() => import('./pages/customer/ProductDetailPage'), 'ProductDetailPage');
+const CartPage = named(() => import('./pages/customer/CartPage'), 'CartPage');
+const CheckoutPage = named(() => import('./pages/customer/CheckoutPage'), 'CheckoutPage');
+const OrderHistoryPage = named(() => import('./pages/customer/OrderHistoryPage'), 'OrderHistoryPage');
+const OrderDetailPage = named(() => import('./pages/customer/OrderDetailPage'), 'OrderDetailPage');
+const OrderConfirmationPage = named(() => import('./pages/customer/OrderConfirmationPage'), 'OrderConfirmationPage');
+const OrderStatusPage = named(() => import('./pages/customer/OrderStatusPage'), 'OrderStatusPage');
+const LiveTrackingPage = named(() => import('./pages/customer/LiveTrackingPage'), 'LiveTrackingPage');
+const ProfilePage = named(() => import('./pages/customer/ProfilePage'), 'ProfilePage');
+const HelpSupportPage = named(() => import('./pages/customer/HelpSupportPage'), 'HelpSupportPage');
+const NotificationsPage = named(() => import('./pages/customer/NotificationsPage'), 'NotificationsPage');
 
-// Retailer Pages
-import { RetailerHomePage } from './pages/retailer/RetailerHomePage';
-import { RetailerOrdersPage } from './pages/retailer/RetailerOrdersPage';
-import { RetailerStorePage } from './pages/retailer/RetailerStorePage';
-import { RetailerMenuPage } from './pages/retailer/RetailerMenuPage';
-import { RetailerStoreOverviewPage } from './pages/retailer/RetailerStoreOverviewPage';
-import { RetailerBusinessSettingsPage } from './pages/retailer/RetailerBusinessSettingsPage';
-import { RetailerPerformancePage } from './pages/retailer/RetailerPerformancePage';
-import { RetailerHelpPage } from './pages/retailer/RetailerHelpPage';
-import { RetailerInventoryPage } from './pages/retailer/RetailerInventoryPage';
-
-// Delivery Partner Pages
-import { DeliveryDashboard } from './pages/delivery/DeliveryDashboard';
-import { CurrentDeliveryPage } from './pages/delivery/CurrentDeliveryPage';
-import { DeliveryHomePage } from './pages/delivery/DeliveryHomePage';
-import { DeliveryHistoryPage } from './pages/delivery/DeliveryHistoryPage';
-import { AvailableOrdersPage } from './pages/delivery/AvailableOrdersPage';
-import { DeliveryEarningsPage } from './pages/delivery/DeliveryEarningsPage';
-import { DeliveryProfilePage } from './pages/delivery/DeliveryProfilePage';
-
-// Customer Layout & Pages
-import { CustomerLayout } from './components/customer/CustomerLayout';
-import { HomePage } from './pages/customer/HomePage';
-import { LocationPage } from './pages/customer/LocationPage';
-import { StorePage } from './pages/customer/StorePage';
-import { ProductListingPage } from './pages/customer/ProductListingPage';
-import { SearchPage } from './pages/customer/SearchPage';
-import { ProductDetailPage } from './pages/customer/ProductDetailPage';
-import { CartPage } from './pages/customer/CartPage';
-import { CheckoutPage } from './pages/customer/CheckoutPage';
-import { OrderHistoryPage } from './pages/customer/OrderHistoryPage';
-import { OrderDetailPage } from './pages/customer/OrderDetailPage';
-import { OrderConfirmationPage } from './pages/customer/OrderConfirmationPage';
-import { OrderStatusPage } from './pages/customer/OrderStatusPage';
-import { LiveTrackingPage } from './pages/customer/LiveTrackingPage';
-import { ProfilePage } from './pages/customer/ProfilePage';
-import { HelpSupportPage } from './pages/customer/HelpSupportPage';
-import { NotificationsPage } from './pages/customer/NotificationsPage';
+const RouteLoading = () => (
+  <div className="flex min-h-screen items-center justify-center bg-slate-50" role="status" aria-live="polite">
+    <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600" />
+    <span className="sr-only">Loading page</span>
+  </div>
+);
 
 const RootRedirect: React.FC = () => {
   const { user, role, isAuthenticated, isLoading } = useAuth();
@@ -81,6 +84,7 @@ export const App: React.FC = () => {
     <AuthProvider>
       <CartProvider>
         <BrowserRouter>
+          <Suspense fallback={<RouteLoading />}>
           <Routes>
             {/* Public / Auth */}
             <Route path="/login" element={<LoginPage />} />
@@ -159,6 +163,7 @@ export const App: React.FC = () => {
             {/* Fallback Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </CartProvider>
     </AuthProvider>

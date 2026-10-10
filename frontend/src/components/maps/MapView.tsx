@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl, { GeoJSONSource, Map as MapboxMap, Marker as MapboxMarker } from 'mapbox-gl';
 import type { RouteGeometry } from '../../types/delivery';
+import { routeProgressForCoordinate, sampleRouteAtProgress } from '../../utils/trackingGeometry';
 
 type LineStringGeometry = { type: 'LineString'; coordinates: [number, number][] };
 type PolygonFeature = { type: 'Feature'; properties: Record<string, unknown>; geometry: { type: 'Polygon'; coordinates: [number, number][][] } };
@@ -20,6 +21,9 @@ export interface MapMarker extends MapCoordinate {
   draggable?: boolean;
   onClick?: () => void;
   onDragEnd?: (coordinate: MapCoordinate) => void;
+  heading?: number | null;
+  animate?: boolean;
+  followRoute?: boolean;
 }
 
 export interface MapCircle extends MapCoordinate {
@@ -66,6 +70,8 @@ function markerElement(marker: MapMarker) {
   const root = document.createElement('div');
   root.className = 'dukaan-map-marker';
   root.style.setProperty('--marker-color', markerColor(marker));
+  if (marker.kind === 'rider') root.classList.add('dukaan-map-marker--rider');
+  root.style.setProperty('--marker-heading', `${marker.heading ?? 0}deg`);
 
   const dot = document.createElement('span');
   dot.className = 'dukaan-map-marker__dot';
@@ -98,6 +104,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const mapRef = useRef<MapboxMap | null>(null);
   const markersRef = useRef<Map<string, MapboxMarker>>(new Map());
   const circleIdsRef = useRef<string[]>([]);
+  const markerAnimationsRef = useRef<Map<string, number>>(new Map());
   const [isReady, setIsReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
 
@@ -133,6 +140,8 @@ export const MapView: React.FC<MapViewProps> = ({
     }
 
     return () => {
+      markerAnimationsRef.current.forEach((frame) => cancelAnimationFrame(frame));
+      markerAnimationsRef.current.clear();
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current.clear();
       map.remove();
@@ -145,10 +154,67 @@ export const MapView: React.FC<MapViewProps> = ({
     const map = mapRef.current;
     if (!map || !isReady) return;
 
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current.clear();
+    const nextIds = new Set(markers.filter(validCoordinate).map((marker) => marker.id));
+    markersRef.current.forEach((marker, id) => {
+      if (!nextIds.has(id)) {
+        const frame = markerAnimationsRef.current.get(id);
+        if (frame != null) cancelAnimationFrame(frame);
+        markerAnimationsRef.current.delete(id);
+        marker.remove();
+        markersRef.current.delete(id);
+      }
+    });
     markers.filter(validCoordinate).forEach((markerData) => {
-      const marker = new mapboxgl.Marker({ element: markerElement(markerData), draggable: markerData.draggable })
+      const existing = markersRef.current.get(markerData.id);
+      if (existing) {
+        const element = existing.getElement();
+        element.style.setProperty('--marker-color', markerColor(markerData));
+        element.style.setProperty('--marker-heading', `${markerData.heading ?? 0}deg`);
+        let label = element.querySelector<HTMLSpanElement>('.dukaan-map-marker__label');
+        if (markerData.label && !label) {
+          label = document.createElement('span');
+          label.className = 'dukaan-map-marker__label';
+          element.appendChild(label);
+        }
+        if (label) {
+          if (markerData.label) label.textContent = markerData.label;
+          else label.remove();
+        }
+        const priorFrame = markerAnimationsRef.current.get(markerData.id);
+        if (priorFrame != null) cancelAnimationFrame(priorFrame);
+        const from = existing.getLngLat();
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (markerData.animate && !reducedMotion) {
+          const startedAt = performance.now();
+          const durationMs = 900;
+          const fromProgress = markerData.followRoute
+            ? routeProgressForCoordinate(routeGeometry, { lat: from.lat, lng: from.lng })
+            : null;
+          const targetProgress = markerData.followRoute
+            ? routeProgressForCoordinate(routeGeometry, markerData)
+            : null;
+          const animate = (now: number) => {
+            const progress = Math.min(1, (now - startedAt) / durationMs);
+            const eased = 1 - (1 - progress) ** 3;
+            const routePosition = fromProgress != null && targetProgress != null && targetProgress >= fromProgress
+              ? sampleRouteAtProgress(routeGeometry, fromProgress + (targetProgress - fromProgress) * eased)
+              : null;
+            existing.setLngLat(routePosition
+              ? [routePosition.lng, routePosition.lat]
+              : [
+                from.lng + (markerData.lng - from.lng) * eased,
+                from.lat + (markerData.lat - from.lat) * eased,
+              ]);
+            if (progress < 1) markerAnimationsRef.current.set(markerData.id, requestAnimationFrame(animate));
+            else markerAnimationsRef.current.delete(markerData.id);
+          };
+          markerAnimationsRef.current.set(markerData.id, requestAnimationFrame(animate));
+        } else {
+          existing.setLngLat([markerData.lng, markerData.lat]);
+        }
+        return;
+      }
+      const marker = new mapboxgl.Marker({ element: markerElement(markerData), draggable: markerData.draggable, rotationAlignment: 'map' })
         .setLngLat([markerData.lng, markerData.lat])
         .addTo(map);
       if (markerData.onClick) marker.getElement().addEventListener('click', markerData.onClick);
@@ -158,7 +224,11 @@ export const MapView: React.FC<MapViewProps> = ({
       });
       markersRef.current.set(markerData.id, marker);
     });
+  }, [isReady, markers, routeGeometry]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isReady) return;
     circleIdsRef.current.forEach((id) => {
       if (map.getLayer(`${id}-fill`)) map.removeLayer(`${id}-fill`);
       if (map.getLayer(`${id}-line`)) map.removeLayer(`${id}-line`);
@@ -185,7 +255,7 @@ export const MapView: React.FC<MapViewProps> = ({
       map.addLayer({ id: `${id}-line`, type: 'line', source: id, paint: { 'line-color': circle.color, 'line-width': 2, 'line-dasharray': circle.lineDasharray || [1, 1] } });
       circleIdsRef.current.push(id);
     });
-  }, [circles, isReady, markers]);
+  }, [circles, isReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -205,6 +275,15 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [isReady, routeGeometry]);
 
+  const routeStart = routeGeometry?.coordinates?.[0];
+  const routeEnd = routeGeometry?.coordinates?.[routeGeometry.coordinates.length - 1];
+  const fitSignature = [
+    ...markers.filter((marker) => marker.kind !== 'rider').map((marker) => `${marker.id}:${marker.lng},${marker.lat}`),
+    routeGeometry?.coordinates?.length || 0,
+    routeStart?.join(',') || '',
+    routeEnd?.join(',') || '',
+  ].join('|');
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isReady || !validCoordinate(center)) return;
@@ -217,7 +296,7 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!points.length) points.push([center.lng, center.lat]);
     const bounds = points.reduce((result, point) => result.extend(point), new mapboxgl.LngLatBounds(points[0], points[0]));
     map.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 450 });
-  }, [center, fitToContent, isReady, markers, routeGeometry]);
+  }, [center.lat, center.lng, fitSignature, fitToContent, isReady]);
 
   const visibleError = errorMessage || mapError;
   return <div className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner ${className}`} style={{ height }}>

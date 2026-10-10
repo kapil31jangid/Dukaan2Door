@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronRight, Filter, MapPin, Store, Clock3 } from 'lucide-react';
 import { customerService } from '../../services/customerService';
 import { Product } from '../../types/product';
-import { ProductGrid } from '../../components/customer/ProductGrid';
+import { ProductGrid, ProductGridSkeleton } from '../../components/customer/ProductGrid';
 import { EmptyState } from '../../components/customer/EmptyState';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
@@ -37,6 +37,7 @@ export const ProductListingPage: React.FC = () => {
   }, [categoryParam]);
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       setIsLoading(true);
       setError(null);
@@ -54,15 +55,17 @@ export const ProductListingPage: React.FC = () => {
           list = [...list].sort((a, b) => b.price - a.price);
         }
 
+        if (cancelled) return;
         setProducts(list);
         setTotal(data.total);
       } catch (err: any) {
-        setError(err.message || 'Failed to load products.');
+        if (!cancelled) setError(err.message || 'Failed to load products.');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     load();
+    return () => { cancelled = true; };
   }, [selectedCategory, page, sortBy]);
 
   const handleCategorySelect = (cat: string | null) => {
@@ -133,13 +136,14 @@ export const ProductListingPage: React.FC = () => {
         </h1>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400 hidden sm:inline">Sort by:</span>
+          <span className="text-xs font-semibold text-slate-500">Sort this page:</span>
           <select
+            aria-label="Sort products on this page"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
             className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs"
           >
-            <option value="default">Relevance & Popularity</option>
+            <option value="default">Catalogue order</option>
             <option value="price_asc">Price: Low to High</option>
             <option value="price_desc">Price: High to Low</option>
           </select>
@@ -148,9 +152,7 @@ export const ProductListingPage: React.FC = () => {
 
       {/* Products Grid */}
       {isLoading ? (
-        <div className="flex justify-center py-20">
-          <Spinner size="lg" label="Fetching products from the local store…" />
-        </div>
+        <ProductGridSkeleton />
       ) : error ? (
         <Alert variant="error">{error}</Alert>
       ) : products.length === 0 ? (

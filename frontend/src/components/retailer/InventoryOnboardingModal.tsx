@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Camera, CheckCircle2, FileImage, Languages, Loader2, Plus, ScanLine, Trash2 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -52,14 +52,28 @@ const isCompleteItem = (item: InventoryDraftItem): boolean =>
       item.category
   );
 
+const createConfirmationId = () =>
+  globalThis.crypto?.randomUUID?.() ?? `inventory-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, products, onConfirmed }) => {
   const [mode, setMode] = useState<'choose' | 'image' | 'review' | 'manual'>('choose');
   const [items, setItems] = useState<InventoryDraftItem[]>([]);
   const [source, setSource] = useState<'IMAGE_ASSISTED' | 'MANUAL'>('MANUAL');
   const [nameLanguage, setNameLanguage] = useState<'en' | 'hi'>('en');
   const [isWorking, setIsWorking] = useState(false);
+  const working = useRef(false);
+  const confirmationId = useRef(createConfirmationId());
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedFile || !selectedFile.type.startsWith('image/')) { setPreview(null); return; }
+    const url = URL.createObjectURL(selectedFile);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [selectedFile]);
 
   const reset = () => {
     setMode('choose');
@@ -68,9 +82,12 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
     setNameLanguage('en');
     setError(null);
     setIsWorking(false);
+    setSelectedFile(null);
+    confirmationId.current = createConfirmationId();
   };
 
   const close = () => {
+    if (isWorking) return;
     reset();
     onClose();
   };
@@ -80,7 +97,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
       current.map((item, itemIndex) => {
         if (itemIndex !== index) return item;
         const updated = { ...item, [field]: value };
-        updated.needs_review = !isCompleteItem(updated);
+        if (source === 'MANUAL') updated.needs_review = !isCompleteItem(updated);
         return updated;
       })
     );
@@ -89,6 +106,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
   const remove = (index: number) => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
 
   const analyze = async (file: File) => {
+    if (working.current) return;
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(jpe?g|png|webp|pdf)$/i)) {
       setError('Upload a JPG, PNG, WEBP, or PDF up to 5 MB.');
@@ -98,6 +116,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
       setError('The file is larger than 5 MB. Please resize the image.');
       return;
     }
+    working.current = true;
     setIsWorking(true);
     setError(null);
     try {
@@ -116,6 +135,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
     } catch (err: any) {
       setError(err.message || "We couldn't reliably extract products from this image. You can try another photo or enter the products manually.");
     } finally {
+      working.current = false;
       setIsWorking(false);
     }
   };
@@ -137,6 +157,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
     }));
 
   const confirm = async () => {
+    if (working.current) return;
     const confirmed = toConfirmItems();
     if (
       !confirmed.length ||
@@ -145,19 +166,22 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
       setError('Every product needs a reviewed English name, whole quantity (≥ 1), unit, selling price, and category before confirmation.');
       return;
     }
+    working.current = true;
     setIsWorking(true);
     setError(null);
     try {
       if (source === 'MANUAL') {
-        await retailerService.addInventoryManually(confirmed);
+        await retailerService.addInventoryManually(confirmed, confirmationId.current);
       } else {
-        await retailerService.confirmInventory(confirmed, source);
+        await retailerService.confirmInventory(confirmed, source, confirmationId.current);
       }
       onConfirmed(confirmed.length);
-      close();
+      reset();
+      onClose();
     } catch (err: any) {
       setError(err.message || 'Inventory could not be saved. No stock was added.');
     } finally {
+      working.current = false;
       setIsWorking(false);
     }
   };
@@ -174,7 +198,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={close} title={title} maxWidth="xl">
+    <Modal isOpen={isOpen} onClose={close} title={title} maxWidth="2xl">
       <div className="space-y-5">
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
@@ -234,14 +258,14 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
               </span>
               <p className="mt-4 font-bold text-slate-900">Enter Manually</p>
               <p className="mt-1 text-xs leading-5 text-slate-600">
-                Quickly type product and stock details yourself. Direct offline entry without image upload.
+                Enter product and stock details without uploading an image.
               </p>
             </button>
           </div>
         )}
 
         {mode === 'image' && (
-          <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+          <div onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (!isWorking && event.dataTransfer.files[0]) setSelectedFile(event.dataTransfer.files[0]); }} className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 sm:p-8 text-center">
             <input
               ref={fileInput}
               className="hidden"
@@ -249,23 +273,30 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
               accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void analyze(file);
+                if (file) setSelectedFile(file);
                 event.target.value = '';
               }}
             />
             <FileImage className="mx-auto h-12 w-12 text-emerald-600" />
+            <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={event => { const file = event.target.files?.[0]; if (file) setSelectedFile(file); event.target.value = ''; }} />
+            {preview && <img src={preview} alt="Selected inventory document" className="mx-auto mt-4 max-h-48 max-w-full rounded-lg object-contain" />}
+            {selectedFile && <p className="mt-3 break-all text-sm font-semibold">{selectedFile.name}</p>}
             <p className="mt-3 text-base font-bold text-slate-900">Upload Bill or Handwritten Product List</p>
             <p className="mt-1 text-xs text-slate-500">Supports JPG, PNG, WEBP, or PDF up to 5 MB</p>
             <Button
               className="mt-5"
               onClick={() => fileInput.current?.click()}
+              disabled={isWorking}
               isLoading={isWorking}
               leftIcon={isWorking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
             >
               Choose Image or Bill
             </Button>
+            <Button variant="outline" className="ml-2 mt-5" disabled={isWorking} onClick={() => cameraInput.current?.click()} leftIcon={<Camera className="h-4 w-4" />}>Take photo</Button>
+            {selectedFile && <Button className="ml-2 mt-5" isLoading={isWorking} onClick={() => void analyze(selectedFile)}>Analyze with AI</Button>}
             <button
               type="button"
+              disabled={isWorking}
               className="mt-3 block w-full text-xs font-semibold text-slate-600 hover:text-slate-900 hover:underline"
               onClick={() => {
                 setItems([emptyItem()]);
@@ -331,9 +362,9 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
               </div>
             </div>
 
-            <div className="max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+            <fieldset disabled={isWorking} className="space-y-3">
               {items.map((item, index) => {
-                const isReady = isCompleteItem(item);
+                const isReady = isCompleteItem(item) && !item.needs_review;
                 return (
                   <div key={index} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="mb-3 flex items-start justify-between gap-3">
@@ -368,6 +399,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                           {nameLanguage === 'hi' ? 'उत्पाद का नाम' : 'English Product Name'} *
                         </label>
                         <input
+                          aria-label="Product name"
                           value={nameLanguage === 'hi' ? item.original_product_name || item.product_name : item.product_name}
                           onChange={(e) =>
                             change(index, nameLanguage === 'hi' ? 'original_product_name' : 'product_name', e.target.value)
@@ -379,6 +411,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500">Brand</label>
                         <input
+                          aria-label="Brand"
                           value={item.brand || ''}
                           onChange={(e) => change(index, 'brand', e.target.value)}
                           placeholder="Brand (e.g. Amul)"
@@ -388,6 +421,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500">Size / Pack</label>
                         <input
+                          aria-label="Size or pack"
                           value={item.size || ''}
                           onChange={(e) => change(index, 'size', e.target.value)}
                           placeholder="Size (e.g. 500ml)"
@@ -399,6 +433,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                         <input
                           type="number"
                           min="1"
+                          aria-label="Quantity"
                           value={item.quantity ?? ''}
                           onChange={(e) => change(index, 'quantity', e.target.value ? Number(e.target.value) : null)}
                           placeholder="Qty *"
@@ -410,6 +445,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500">Unit *</label>
                         <input
+                          aria-label="Unit"
                           value={item.unit || ''}
                           onChange={(e) => change(index, 'unit', e.target.value)}
                           placeholder="Unit (e.g. pcs, kg)"
@@ -422,6 +458,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                           type="number"
                           min="0.01"
                           step="0.01"
+                          aria-label="Selling price"
                           value={item.price ?? ''}
                           onChange={(e) => change(index, 'price', e.target.value ? Number(e.target.value) : null)}
                           placeholder="Price *"
@@ -433,6 +470,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500">Category *</label>
                         <select
+                          aria-label="Category"
                           value={item.category || ''}
                           onChange={(e) => change(index, 'category', e.target.value || null)}
                           className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-emerald-500"
@@ -448,6 +486,7 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500">Special Handling</label>
                         <select
+                          aria-label="Special handling"
                           value={item.handling_type || 'NORMAL'}
                           onChange={(e) => {
                             const handling = e.target.value as Product['handling_type'];
@@ -462,6 +501,18 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                           <option value="PERISHABLE">Perishable (Milk / Curd)</option>
                         </select>
                       </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="text-xs font-semibold text-slate-600">Expiry date
+                        <input type="date" value={item.expiry_date || ''} onChange={event => change(index, 'expiry_date', event.target.value || null)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2" />
+                      </label>
+                      <label className="text-xs font-semibold text-slate-600">Catalogue match
+                        <select value={item.possible_existing_product_id || ''} onChange={event => change(index, 'possible_existing_product_id', event.target.value ? Number(event.target.value) : null)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2">
+                          <option value="">Match reviewed details automatically</option>
+                          {products.map(product => <option key={product.id} value={product.id}>{product.name} ({product.unit})</option>)}
+                        </select>
+                      </label>
                     </div>
 
                     {item.review_reason && (
@@ -486,12 +537,13 @@ export const InventoryOnboardingModal: React.FC<Props> = ({ isOpen, onClose, pro
                   </div>
                 );
               })}
-            </div>
+            </fieldset>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
               <Button
                 variant="outline"
                 size="sm"
+                disabled={isWorking}
                 onClick={() => setItems((current) => [...current, emptyItem()])}
                 leftIcon={<Plus className="h-4 w-4" />}
               >

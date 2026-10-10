@@ -2,12 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+@media (max-width: 639px) {
+  .inventory-table, .inventory-table tbody { display: block; width: 100%; }
+  .inventory-table thead { display: none; }
+  .inventory-table tr { display: block; padding: 12px 0; }
+  .inventory-table td { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 16px; text-align: left; }
+  .inventory-table td::before { content: attr(data-label); width: 80px; flex-shrink: 0; font-weight: 600; color: #64748b; }
+  .inventory-table td:first-child::before { display: none; }
+  .inventory-table td:first-child { padding-bottom: 12px; }
+  .inventory-table td:first-child > div { min-width: 0; width: 100%; }
+  .inventory-table button { min-height: 40px; min-width: 40px; }
+}
+
 @layer base {
+  :root {
+    --color-brand: #e11d48;
+    --color-surface: #ffffff;
+    --color-canvas: #f6f7f8;
+    --color-ink: #17212b;
+    --color-border: #e2e5e9;
+  }
+  * { letter-spacing: 0 !important; }
+  :focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; }
+  button, input, select, textarea { font: inherit; }
+  button, a, input, select, textarea { touch-action: manipulation; }
+  input, select, textarea { max-width: 100%; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
   body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #1e293b;
     background-color: #f8fafc;
   }
+}
+
+@layer components {
+  .portal-shell { background: var(--color-canvas); color: var(--color-ink); }
+  .portal-shell main { min-width: 0; }
+  .portal-shell .rounded-xl, .portal-shell .rounded-2xl { border-radius: 8px; }
+  .portal-shell table { font-variant-numeric: tabular-nums; }
+  .portal-shell th { white-space: nowrap; }
+  .portal-shell h1 { overflow-wrap: anywhere; }
+  .portal-shell input:not([type=checkbox]):not([type=radio]), .portal-shell select { min-height: 40px; }
+  .product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (min-width: 640px) { .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1024px) { .product-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; } }
 }
 
 .customer-shell button:focus-visible,
@@ -56,6 +96,33 @@
   border-radius: 9999px;
   background: var(--marker-color);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--marker-color) 28%, transparent);
+}
+
+.dukaan-map-marker--rider .dukaan-map-marker__dot {
+  position: relative;
+  width: 22px;
+  height: 22px;
+}
+
+.dukaan-map-marker--rider .dukaan-map-marker__dot::after {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-bottom: 9px solid white;
+  border-left: 4px solid transparent;
+  content: '';
+  transform: rotate(var(--marker-heading));
+  transform-origin: 50% 65%;
+  transition: transform 400ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dukaan-map-marker--rider .dukaan-map-marker__dot::after {
+    transition: none;
+  }
 }
 
 .dukaan-map-marker__label {

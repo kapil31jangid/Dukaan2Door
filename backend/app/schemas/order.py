@@ -49,6 +49,8 @@ class OrderItemResponse(BaseModel):
     quantity: int
     unit_price: float
     subtotal: float
+    handling_type: str = "NORMAL"
+    requires_special_equipment: bool = False
 
 
 class OrderResponse(BaseModel):

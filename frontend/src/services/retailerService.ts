@@ -109,11 +109,11 @@ export const retailerService = {
     return uploadFile<InventoryAnalysisResponse>('/api/retailer/inventory/analyze', form);
   },
 
-  async confirmInventory(items: InventoryConfirmItem[], source: 'IMAGE_ASSISTED' | 'MANUAL'): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {
-    return apiRequest('/api/retailer/inventory/confirm', { method: 'POST', body: JSON.stringify({ items, source }) });
+  async confirmInventory(items: InventoryConfirmItem[], source: 'IMAGE_ASSISTED' | 'MANUAL', confirmationId: string): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {
+    return apiRequest('/api/retailer/inventory/confirm', { method: 'POST', body: JSON.stringify({ items, source, confirmation_id: confirmationId }) });
   },
 
-  async addInventoryManually(items: InventoryConfirmItem[]): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {
-    return apiRequest('/api/retailer/inventory/manual', { method: 'POST', body: JSON.stringify({ items, source: 'MANUAL' }) });
+  async addInventoryManually(items: InventoryConfirmItem[], confirmationId: string): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {
+    return apiRequest('/api/retailer/inventory/manual', { method: 'POST', body: JSON.stringify({ items, source: 'MANUAL', confirmation_id: confirmationId }) });
   },
 };

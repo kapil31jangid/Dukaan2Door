@@ -64,7 +64,6 @@ export const CartPage: React.FC = () => {
             <div><h2 className="text-base font-extrabold text-slate-950">Order summary</h2><p className="mt-1 text-xs text-slate-500">{totalItems} item{totalItems !== 1 ? 's' : ''} from your local store</p></div>
             <div className="space-y-3 border-y border-slate-100 py-4 text-sm">
               <div className="flex items-center justify-between text-slate-600"><span>Subtotal</span><span>₹{totalPrice.toFixed(2)}</span></div>
-              <div className="flex items-center justify-between text-sm"><span>Delivery</span><span className="font-semibold text-emerald-600">Free on orders over ₹299</span></div>
               <div className="flex items-center justify-between text-base font-black text-slate-950"><span>Total</span><span className="text-emerald-600">₹{totalPrice.toFixed(2)}</span></div>
             </div>
             <div className="space-y-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">

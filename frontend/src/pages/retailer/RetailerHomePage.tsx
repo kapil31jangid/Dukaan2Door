@@ -100,7 +100,7 @@ export const RetailerHomePage: React.FC = () => {
       setRecentOrders((current) => current.map((order) => order.id === orderId ? updated : order));
       setSelectedOrder(updated);
     } catch (err: any) {
-      setError(err.message || 'Unable to update the order.');
+      setError(err.message || 'Unable to update the order.'); throw err;
     }
   };
 

@@ -16,6 +16,8 @@ export interface OrderItem {
   quantity: number;
   unit_price: number;
   subtotal: number;
+  handling_type?: 'NORMAL' | 'FROZEN' | 'FRAGILE' | 'PERISHABLE';
+  requires_special_equipment?: boolean;
 }
 
 export interface Order {

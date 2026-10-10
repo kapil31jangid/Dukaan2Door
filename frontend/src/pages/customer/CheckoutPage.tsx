@@ -13,6 +13,7 @@ export const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
   const { items, totalItems, totalPrice, clearCart } = useCart();
   const isRedirectingToTracking = useRef(false);
+  const submitting = useRef(false);
   
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [address, setAddress] = useState('');
@@ -34,8 +35,8 @@ export const CheckoutPage: React.FC = () => {
     customerService.getProfile().then((p) => {
       setProfile(p);
       setAddress(p.delivery_address || '');
-      setLat(p.lat || undefined);
-      setLng(p.lng || undefined);
+      setLat(p.lat ?? undefined);
+      setLng(p.lng ?? undefined);
       setIsLoadingProfile(false);
     }).catch(() => {
       setIsLoadingProfile(false);
@@ -66,11 +67,13 @@ export const CheckoutPage: React.FC = () => {
   };
 
   const handlePlaceOrder = async () => {
+    if (submitting.current) return;
     if (!address.trim()) {
       setError('Please provide a delivery address.');
       return;
     }
     
+    submitting.current = true;
     setIsPlacingOrder(true);
     setError(null);
     
@@ -95,6 +98,7 @@ export const CheckoutPage: React.FC = () => {
         setError(err.message || 'Failed to place order. Please try again.');
       }
     } finally {
+      submitting.current = false;
       setIsPlacingOrder(false);
     }
   };
@@ -115,7 +119,7 @@ export const CheckoutPage: React.FC = () => {
         {['Delivery', 'Payment', 'Review'].map((step, index) => (
           <div key={step} className="flex items-center gap-2 text-xs font-bold text-slate-600">
             <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${index === 0 ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700'}`}>{index + 1}</span>
-            <span className="hidden sm:inline">{step}</span>
+            <span>{step}</span>
             {index < 2 && <span className="ml-auto h-px flex-1 bg-slate-200" />}
           </div>
         ))}

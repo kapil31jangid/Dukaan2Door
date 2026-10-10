@@ -1,0 +1,27 @@
+{
+  "cases": [
+    {
+      "name": "Sanitized printed kirana bill 01",
+      "category": "printed-kirana-bill",
+      "file": "images/printed-bill-01.jpg",
+      "expected": [
+        {
+          "product_name": "Exact visible product name",
+          "quantity": 10,
+          "unit": "pack",
+          "unit_price": 28.0,
+          "total_price": 280.0,
+          "needs_review": false
+        },
+        {
+          "product_name": "Unreadable price example",
+          "quantity": 2,
+          "unit": null,
+          "unit_price": null,
+          "total_price": null,
+          "needs_review": true
+        }
+      ]
+    }
+  ]
+}

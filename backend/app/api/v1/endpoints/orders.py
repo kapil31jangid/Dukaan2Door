@@ -78,6 +78,8 @@ def _order_to_response(order: Order) -> OrderResponse:
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 subtotal=item.subtotal,
+                handling_type=item.product.handling_type if item.product else "NORMAL",
+                requires_special_equipment=item.product.requires_special_equipment if item.product else False,
             )
             for item in order.items
         ],
@@ -445,6 +447,8 @@ def get_order_status_tracking(
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 subtotal=item.subtotal,
+                handling_type=item.product.handling_type if item.product else "NORMAL",
+                requires_special_equipment=item.product.requires_special_equipment if item.product else False,
             )
             for item in order.items
         ],

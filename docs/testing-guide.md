@@ -25,10 +25,10 @@ source .venv/bin/activate
 uvicorn app.main:app --reload --port 8080
 ```
 
-Inventory image analysis runs through local, CPU-only PaddleOCR and requires no
-OCR API key. Use Python 3.11-3.13; the first analysis may take longer while the
-shared model downloads and initializes. Manual inventory entry remains
-available if local OCR is unavailable.
+Inventory image analysis uses Gemini when `GEMINI_API_KEY` is configured, with
+local CPU-only PaddleOCR as a provider fallback. Use Python 3.11-3.13; the first
+fallback analysis may take longer while the shared model initializes. Manual
+inventory entry remains available if both analysis paths are unavailable.
 
 If the existing virtual environment uses Python 3.14, recreate it with Python
 3.11-3.13. Alternatively, use the verified container:
@@ -52,21 +52,20 @@ Open `http://localhost:3000`. Confirm these endpoints before testing:
 - API documentation: `http://localhost:8080/docs`
 - Mapbox token: `frontend/.env` contains a public `VITE_MAPBOX_TOKEN`
 
-### Reset the 3 km simulation start position
+### Reset the controlled rider start position
 
-Run this before a new driver-map demonstration if Arjun previously used live
-GPS, manual transmit, or completed a simulated drive:
+Run this before a new driver-map test if Arjun previously used live GPS and
+finished near the customer:
 
 ```bash
 python scripts/seed_dashboard_accounts.py --allow-remote
 ```
 
 This updates only the controlled dashboard test accounts. It restores Arjun to
-the seeded position approximately 3 km east of the Satellite store. The
-dispatch screen should then show roughly `3 km away` for Arjun. After a drive
-reaches the customer, the database correctly shows his latest position near
-the destination, so a later dispatch list may show `0 km away` until the seed
-command is run again.
+the seeded position approximately 3 km east of the Satellite store. In local
+Vite development, the saved position is the starting point for the explicitly
+labelled demo route. Production tracking still uses browser geolocation. Do not
+run this against unapproved operational accounts.
 
 ## Parallel Test Story
 
@@ -100,10 +99,10 @@ Log in with the retailer account and open `/retailer/inventory`.
 
 1. Select **Add Inventory**, then **Scan product or bill**.
 2. Upload a clear JPG, PNG, or PDF containing real product rows.
-3. Wait while the backend validates and processes the document with PaddleOCR.
+3. Wait while the backend validates and analyzes the document with Gemini (or
+   local PaddleOCR when provider fallback is required).
 4. Verify detected name, size, quantity, unit, price, category, expiry, and
-   review warnings. Real PaddleOCR confidence is shown where available; every
-   uncertain or missing field must still be verified.
+   review warnings. Every uncertain or missing field must still be verified.
 5. Correct a value, remove one draft row, and optionally add a missed row.
 6. Before confirmation, refresh the inventory in another tab and verify no
    detected draft has been written.
@@ -115,7 +114,7 @@ From the repository root, inspect OCR output and timing with the same backend
 pipeline:
 
 ```bash
-python scripts/test_paddle_ocr.py /path/to/real-bill.jpg
+python scripts/benchmark_gemini_inventory.py benchmarks/inventory_ocr/manifest.json
 ```
 
 Handwritten recognition is best effort. Any uncertain row must be corrected
@@ -154,12 +153,11 @@ Log in with the delivery partner account and open `/delivery/orders`.
 
 For the visual movement test, make sure Arjun is online and his seeded `~3 km
 away` position is visible, then claim the ready order from the delivery
-dashboard. On the current delivery screen, move the delivery to **Out for
-Delivery**. After the rider first accepts the delivery, the road-based drive
-starts at Arjun's persisted position and travels to the pickup store. After
-pickup and **Out for Delivery**, it follows the road route to the customer.
-Keep the customer tracking page open to verify both maps receive the same
-updates.
+dashboard. Pickup remains a rider-confirmed action; no pre-pickup drive is
+simulated. After **Start delivery** moves the order to `OUT_FOR_DELIVERY`, local
+Vite development replays the OSRM road route from Arjun's persisted position to
+the customer. Keep the customer tracking page open to verify both maps receive
+the same labelled demo points.
 
 Expected delivery lifecycle:
 
@@ -167,9 +165,9 @@ Expected delivery lifecycle:
 ASSIGNED -> ACCEPTED -> PICKED_UP -> OUT_FOR_DELIVERY
 ```
 
-There is no manual GPS broadcaster in the rider workflow. Location publishing
-is automatic: after acceptance the rider follows the road route to pickup, and
-after `OUT_FOR_DELIVERY` the rider follows the route to the customer.
+There is no manual GPS broadcaster in the rider workflow. In local development,
+labelled demo publishing starts automatically after `OUT_FOR_DELIVERY`. In a
+production build, accepted deliveries use browser GPS instead.
 
 Keep the customer tracking page open while the drive runs. The rider marker,
 latest GPS timestamp, and accuracy should update without a page reload.

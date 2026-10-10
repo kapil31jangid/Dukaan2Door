@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { Order, ORDER_STATUS_LABELS, ORDER_STATUS_COLORS } from '../../types/order';
 import { Modal } from '../ui/Modal';
 import { Badge } from '../ui/Badge';
@@ -29,13 +29,27 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   onClose,
   onUpdateStatus,
 }) => {
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const update = async (status: Order['status']) => {
+    if (!order || pending.current) return;
+    if (status === 'REJECTED' && !window.confirm('Reject this order?')) return;
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    try { await onUpdateStatus(order.id, status); onClose(); }
+    catch { setError('The order could not be updated. Please try again.'); }
+    finally { pending.current = false; setBusy(false); }
+  };
   if (!order) return null;
 
   const statusColor = ORDER_STATUS_COLORS[order.status] || ORDER_STATUS_COLORS.RECEIVED;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Order #${order.id} Details`} maxWidth="lg">
+    <Modal isOpen={isOpen} onClose={() => { if (!pending.current) onClose(); }} title={`Order #${order.id} Details`} maxWidth="lg">
       <div className="space-y-6">
+        {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
         {/* Status Header */}
         <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-100">
           <div>
@@ -88,7 +102,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Order Items ({order.items.length})
           </h4>
-          <div className="border border-slate-100 rounded-xl overflow-hidden">
+          <div className="border border-slate-100 rounded-xl overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-100 text-xs">
               <thead className="bg-slate-50 font-semibold text-slate-600">
                 <tr>
@@ -133,10 +147,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
-                  await onUpdateStatus(order.id, 'REJECTED');
-                  onClose();
-                }}
+                disabled={busy}
+                onClick={() => void update('REJECTED')}
                 className="text-rose-600 border-rose-200 hover:bg-rose-50"
               >
                 Reject
@@ -144,10 +156,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               <Button
                 variant="primary"
                 size="sm"
-                onClick={async () => {
-                  await onUpdateStatus(order.id, 'ACCEPTED');
-                  onClose();
-                }}
+                disabled={busy}
+                onClick={() => void update('ACCEPTED')}
               >
                 Accept Order
               </Button>
@@ -158,10 +168,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <Button
               variant="primary"
               size="sm"
-              onClick={async () => {
-                await onUpdateStatus(order.id, 'PREPARING');
-                onClose();
-              }}
+              disabled={busy}
+                onClick={() => void update('PREPARING')}
               className="bg-indigo-600 hover:bg-indigo-700 text-white"
             >
               Start Preparing
@@ -172,10 +180,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             <Button
               variant="primary"
               size="sm"
-              onClick={async () => {
-                await onUpdateStatus(order.id, 'READY_FOR_PICKUP');
-                onClose();
-              }}
+              disabled={busy}
+                onClick={() => void update('READY_FOR_PICKUP')}
               className="bg-purple-600 hover:bg-purple-700 text-white"
             >
               Mark Ready for Pickup

@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Clock3, MapPin, Navigation, Package, Phone, Store, Truck } from 'lucide-react';
 import { customerService } from '../../services/customerService';
-import { DeliveryWebSocketClient } from '../../services/websocketService';
+import { DeliveryWebSocketClient, WebSocketConnectionState } from '../../services/websocketService';
 import { DeliveryTrackingPoint, RouteGeometry } from '../../types/delivery';
 import { OrderStatus, OrderStatusTracking } from '../../types/order';
 import { OrderStatusTimeline } from '../../components/customer/OrderStatusTimeline';
@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
+import { bearingDegrees, isNewerTrackingPoint, RouteRefreshSnapshot, shouldRefreshRoute } from '../../utils/trackingGeometry';
 
 export const OrderStatusPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -18,8 +19,29 @@ export const OrderStatusPage: React.FC = () => {
   const [tracking, setTracking] = useState<OrderStatusTracking | null>(null);
   const [latestLocation, setLatestLocation] = useState<DeliveryTrackingPoint | null>(null);
   const [routeGeometry, setRouteGeometry] = useState<RouteGeometry | undefined>();
+  const [riderHeading, setRiderHeading] = useState<number | null>(null);
+  const [connectionState, setConnectionState] = useState<WebSocketConnectionState>('connecting');
+  const [clock, setClock] = useState(Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const latestLocationRef = useRef<DeliveryTrackingPoint | null>(null);
+  const routeController = useRef<AbortController | null>(null);
+  const routeRequestId = useRef(0);
+  const lastRouteRequest = useRef<RouteRefreshSnapshot | null>(null);
+
+  const acceptLocation = (candidate: DeliveryTrackingPoint) => {
+    const previous = latestLocationRef.current;
+    if (!isNewerTrackingPoint(previous, candidate)) return;
+    if (previous) {
+      const heading = bearingDegrees(
+        { lat: previous.latitude, lng: previous.longitude },
+        { lat: candidate.latitude, lng: candidate.longitude },
+      );
+      if (heading != null) setRiderHeading(heading);
+    }
+    latestLocationRef.current = candidate;
+    setLatestLocation(candidate);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -52,6 +74,7 @@ export const OrderStatusPage: React.FC = () => {
   useEffect(() => {
     const deliveryId = tracking?.delivery_id;
     if (!deliveryId) {
+      latestLocationRef.current = null;
       setLatestLocation(null);
       setRouteGeometry(undefined);
       return;
@@ -62,20 +85,14 @@ export const OrderStatusPage: React.FC = () => {
       try {
         const data = await customerService.getDeliveryTracking(deliveryId);
         if (active && data.updates.length > 0) {
-          setLatestLocation(data.updates[data.updates.length - 1]);
+          const newest = data.updates.reduce((latest, point) => Date.parse(point.recorded_at) > Date.parse(latest.recorded_at) ? point : latest);
+          acceptLocation(newest);
         }
       } catch {
         // Location may not exist until the partner accepts the delivery.
       }
     };
 
-    customerService.getDeliveryRoute(deliveryId)
-      .then((data) => {
-        if (active) setRouteGeometry(data.geometry);
-      })
-      .catch(() => {
-        // Pins remain useful when OSRM is temporarily unavailable.
-      });
     refreshLocation();
     const locationInterval = window.setInterval(refreshLocation, 2500);
 
@@ -83,12 +100,13 @@ export const OrderStatusPage: React.FC = () => {
     const unsubscribe = socket.subscribe((event) => {
       if (!active) return;
       if (event.event === 'delivery_location_updated') {
-        setLatestLocation({
+        acceptLocation({
           id: 0,
           delivery_id: deliveryId,
           latitude: event.data.latitude,
           longitude: event.data.longitude,
           accuracy_m: event.data.accuracy_m,
+          source: event.data.source,
           status: event.data.status,
           recorded_at: event.data.recorded_at,
         });
@@ -107,15 +125,49 @@ export const OrderStatusPage: React.FC = () => {
         } : current);
       }
     });
+    const unsubscribeConnection = socket.subscribeConnection(setConnectionState);
     socket.connect();
 
     return () => {
       active = false;
       window.clearInterval(locationInterval);
       unsubscribe();
+      unsubscribeConnection();
       socket.disconnect();
     };
   }, [tracking?.delivery_id]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const deliveryId = tracking?.delivery_id;
+    const status = tracking?.current_status;
+    if (!deliveryId || !status || ['DELIVERED', 'CANCELLED', 'REJECTED'].includes(status)) {
+      routeController.current?.abort();
+      setRouteGeometry(undefined);
+      return;
+    }
+    const origin = latestLocation ? { lat: latestLocation.latitude, lng: latestLocation.longitude } : undefined;
+    const requestSnapshot = { deliveryId, status, origin, requestedAt: Date.now() };
+    const freezeDemoRoute = latestLocation?.source === 'DEMO_SIMULATION' && Boolean(routeGeometry?.coordinates?.length);
+    if (!shouldRefreshRoute(lastRouteRequest.current, requestSnapshot, freezeDemoRoute)) return;
+
+    routeController.current?.abort();
+    const controller = new AbortController();
+    routeController.current = controller;
+    const requestId = ++routeRequestId.current;
+    lastRouteRequest.current = requestSnapshot;
+    customerService.getDeliveryRoute(deliveryId, origin, controller.signal)
+      .then((data) => { if (requestId === routeRequestId.current) setRouteGeometry(data.geometry); })
+      .catch(() => {
+        if (requestId === routeRequestId.current && !controller.signal.aborted) setRouteGeometry(undefined);
+      });
+  }, [latestLocation?.latitude, latestLocation?.longitude, tracking?.current_status, tracking?.delivery_id]);
+
+  useEffect(() => () => routeController.current?.abort(), []);
 
   if (isLoading) {
     return <div className="flex justify-center py-20"><Spinner size="lg" label="Loading order tracking…" /></div>;
@@ -134,6 +186,7 @@ export const OrderStatusPage: React.FC = () => {
 
   const isOutForDelivery = tracking.current_status === 'OUT_FOR_DELIVERY';
   const isDelivered = tracking.current_status === 'DELIVERED';
+  const isStopped = ['CANCELLED', 'REJECTED'].includes(tracking.current_status);
   const hasMapCoordinates = [tracking.store_lat, tracking.store_lng, tracking.delivery_lat, tracking.delivery_lng]
     .every((value) => value != null && Number.isFinite(value));
   // Only persisted delivery updates are shown as the rider's live position.
@@ -141,9 +194,23 @@ export const OrderStatusPage: React.FC = () => {
   const currentLat = latestLocation?.latitude;
   const currentLng = latestLocation?.longitude;
   const hasDriver = tracking.delivery_partner_id != null;
-  const storeStageComplete = !['RECEIVED'].includes(tracking.current_status);
+  const storeStageComplete = !['RECEIVED', 'CANCELLED', 'REJECTED'].includes(tracking.current_status);
   const partnerStageComplete = hasDriver || ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(tracking.current_status);
   const deliveryStageActive = ['OUT_FOR_DELIVERY', 'DELIVERED'].includes(tracking.current_status);
+  const locationAgeMs = latestLocation ? clock - Date.parse(latestLocation.recorded_at) : Number.POSITIVE_INFINITY;
+  const locationIsFresh = locationAgeMs <= 30000;
+  const gpsIsWeak = (latestLocation?.accuracy_m ?? 0) > 60;
+  const locationLabel = latestLocation?.source === 'DEMO_SIMULATION'
+    ? locationIsFresh ? 'Demo route playback active' : 'Demo route playback paused'
+    : !latestLocation
+    ? 'Waiting for rider location'
+    : gpsIsWeak
+      ? `GPS signal weak · ±${Math.round(latestLocation.accuracy_m as number)} m`
+      : !locationIsFresh
+        ? `Last updated ${Math.max(1, Math.floor(locationAgeMs / 60000))} min ago`
+        : connectionState === 'connected'
+          ? 'Location updating live'
+          : 'Connection interrupted · recovering with saved updates';
 
   return (
     <div className="space-y-6">
@@ -154,16 +221,16 @@ export const OrderStatusPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Track Order #{id}</h1>
         <p className="mt-1 text-sm font-medium text-emerald-700">
-          {isDelivered ? 'Delivered successfully.' : isOutForDelivery ? 'Your order is on the way.' : 'We are preparing your local delivery.'}
+          {isStopped ? 'This order is no longer active.' : isDelivered ? 'Delivered successfully.' : isOutForDelivery ? 'Your order is on the way.' : 'We are preparing your local delivery.'}
         </p>
       </div>
 
-      <Card>
+      {!isStopped && <Card>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
           {[
-            { label: 'Store fulfillment', detail: storeStageComplete ? 'Store is processing your order' : 'Waiting for store acceptance', complete: storeStageComplete, icon: Store },
+            { label: 'Store fulfillment', detail: isDelivered ? 'Fulfillment complete' : storeStageComplete ? 'Store has accepted your order' : 'Waiting for store acceptance', complete: storeStageComplete, icon: Store },
             { label: 'Delivery partner', detail: partnerStageComplete ? (tracking.delivery_partner_name || 'Partner assigned') : 'Partner assigned after pickup is ready', complete: partnerStageComplete, icon: Truck },
-            { label: 'Live delivery', detail: deliveryStageActive ? (latestLocation ? 'Latest GPS position received' : 'Route started; awaiting GPS') : 'Live map appears when the order is on the way', complete: deliveryStageActive, icon: Navigation },
+            { label: 'Live delivery', detail: isDelivered ? 'Delivery complete' : deliveryStageActive ? locationLabel : 'Awaiting delivery', complete: deliveryStageActive, icon: Navigation },
           ].map(({ label, detail, complete, icon: Icon }) => (
             <div key={label} className={`rounded-xl border p-3 ${complete ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200 bg-slate-50'}`}>
               <div className="flex items-center gap-2">
@@ -174,7 +241,7 @@ export const OrderStatusPage: React.FC = () => {
             </div>
           ))}
         </CardContent>
-      </Card>
+      </Card>}
 
       <Card>
         <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
@@ -231,7 +298,7 @@ export const OrderStatusPage: React.FC = () => {
       {hasMapCoordinates && (
         <Card className="overflow-hidden">
           <CardContent className="p-0">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="font-bold text-slate-900">Delivery map</h2><p className="text-sm text-slate-500">{latestLocation ? 'Latest partner GPS position' : 'Store to your delivery location'}</p></div>{tracking.delivery_id && <Button variant="outline" size="sm" leftIcon={<Navigation className="h-4 w-4" />} onClick={() => navigate(`/customer/orders/${id}/tracking`)}>Open live map</Button>}</div>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="font-bold text-slate-900">Delivery map</h2><p className="text-sm text-slate-500">{latestLocation ? locationLabel : 'Store to your delivery location'}</p></div>{tracking.delivery_id && <Button variant="outline" size="sm" leftIcon={<Navigation className="h-4 w-4" />} onClick={() => navigate(`/customer/orders/${id}/tracking`)}>Open live map</Button>}</div>
             <DeliveryMap
               pickupLat={tracking.store_lat as number}
               pickupLng={tracking.store_lng as number}
@@ -242,6 +309,8 @@ export const OrderStatusPage: React.FC = () => {
               currentLat={currentLat}
               currentLng={currentLng}
               currentAccuracyM={latestLocation?.accuracy_m}
+              currentHeading={riderHeading}
+              currentSource={latestLocation?.source}
               routeGeometry={routeGeometry}
               height="400px"
             />

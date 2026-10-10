@@ -155,11 +155,11 @@ Open `/delivery` and complete the rider actions:
 ASSIGNED -> ACCEPTED -> PICKED_UP -> OUT_FOR_DELIVERY
 ```
 
-Accept the delivery first. The road-based demo drive automatically takes Arjun
-from his default position to the pickup store. After confirming pickup and
-moving to **Out for Delivery**, it automatically follows the road route to the
-customer, updating the backend and broadcasting the rider position to the
-customer map.
+Accept the delivery first, then confirm pickup. No pre-pickup movement is
+simulated. After selecting **Start delivery**, the order moves to **Out for
+Delivery** and local Vite development replays the OSRM road route from Arjun's
+saved position to the customer. The backend persists and broadcasts the same
+explicitly labelled demo points to the customer map.
 
 When the rider reaches the destination, click **Mark Delivered to Customer**.
 The retailer does not complete this transition; only the delivery partner can

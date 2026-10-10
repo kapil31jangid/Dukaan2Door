@@ -231,7 +231,7 @@ With the local API running on port `8080`, run from the repository root:
 python scripts/run_story.py
 ```
 
-This safe local story verifies customer ordering and store matching, retailer acceptance and preparation, partner acceptance and pickup, GPS tracking with accuracy, delivery completion, and role-scoped order visibility. The runner never resets or deletes data and refuses non-local URLs unless `--allow-remote` is supplied. The full manual three-screen walkthrough is in [End-to-End Demo Story](../docs/e2e-demo-story.md).
+This safe local story verifies customer ordering and store matching, retailer acceptance and preparation, partner acceptance and pickup, GPS tracking with accuracy, delivery completion, and role-scoped order visibility. The runner never resets or deletes data and refuses non-local URLs unless `--allow-remote` is supplied. The full manual three-screen walkthrough is in the [Testing Guide](../docs/testing-guide.md).
 
 Events:
 
@@ -281,7 +281,7 @@ python -m pytest -q
 Current verified result:
 
 ```text
-39 passed
+104 passed
 ```
 
 Test coverage includes authentication, authorization, coordinate validation, 2 km matching, 5 km fallback, inventory-aware matching, order creation, inventory decrement behavior, delivery assignment, delivery state transitions, routing failures, WebSockets, tracking authorization, saved-location fallback, delivery partner availability, and full lifecycle completion.

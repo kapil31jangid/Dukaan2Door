@@ -18,11 +18,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 }) => {
   const navigate = useNavigate();
   const [value, setValue] = React.useState(defaultValue);
+  React.useEffect(() => setValue(defaultValue), [defaultValue]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = value.trim();
-    if (!q) return;
     if (onSearch) {
       onSearch(q);
     } else {
@@ -36,6 +36,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         <Search className="w-4 h-4" />
       </div>
       <input
+        aria-label="Search catalogue"
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
