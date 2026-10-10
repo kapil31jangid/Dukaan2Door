@@ -28,7 +28,7 @@ Delivery partner self-claim · OSRM route planning · Real-time live tracking
 - [Overview](#overview)
 - [Core Workflow](#core-workflow)
 - [System Architecture](#system-architecture)
-- [Technology Stack &amp; Component Breakdown](#-technology-stack--component-breakdown)
+- [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Features by Portal](#features-by-portal)
   - [Customer Portal](#-customer-portal)
@@ -183,39 +183,56 @@ Explore the full runtime view in the
 
 ---
 
-## 🛠️ Technology Stack & Component Breakdown
+## Technology Stack
 
-```text
-+-----------------------------------------------------------------------------------------+
-|                                    TECHNOLOGY STACK                                     |
-+---------------------+-----------------------------+-------------------------------------+
-| CATEGORY            | ACTIVE WORKING DEPLOYMENT   | CORE RESPONSIBILITY                 |
-+---------------------+-----------------------------+-------------------------------------+
-| Frontend            | React 18, TypeScript, Vite, | Customer, retailer, and delivery    |
-|                     | Tailwind CSS, Lucide Icons  | partner role-specific portals       |
-+---------------------+-----------------------------+-------------------------------------+
-| Backend API         | Python 3.11, FastAPI,       | REST APIs, validation, business     |
-|                     | Pydantic v2, SQLAlchemy     | workflows, and authorization        |
-+---------------------+-----------------------------+-------------------------------------+
-| Database            | PostgreSQL on Neon,         | Operational state, store inventory, |
-|                     | SQLAlchemy ORM, Alembic     | orders, tracking, and audit history |
-+---------------------+-----------------------------+-------------------------------------+
-| Inventory AI        | Gemini extraction,          | Review-only product extraction with |
-|                     | optional PaddleOCR fallback | mandatory retailer confirmation     |
-+---------------------+-----------------------------+-------------------------------------+
-| Maps & Routing      | Mapbox GL JS, GeoJSON,      | Location selection, road routes,    |
-|                     | browser GPS, OSRM           | distance, ETA, and live map display |
-+---------------------+-----------------------------+-------------------------------------+
-| Real-Time           | FastAPI WebSockets,         | Authenticated delivery location and |
-|                     | persisted tracking recovery | order-status event broadcasting     |
-+---------------------+-----------------------------+-------------------------------------+
-| Authentication      | JWT bearer tokens, bcrypt,  | Role and resource-level access for  |
-|                     | role-based authorization    | customers, retailers, and riders    |
-+---------------------+-----------------------------+-------------------------------------+
-| Deployment          | Render API, Neon database,  | Cloud runtime, managed data, and    |
-|                     | Vite static frontend        | production frontend delivery        |
-+---------------------+-----------------------------+-------------------------------------+
-```
+<div align="center">
+
+### Experience Layer
+
+[![React](https://img.shields.io/badge/React_18-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-20232A?style=for-the-badge&logo=typescript&logoColor=3178C6)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-20232A?style=for-the-badge&logo=vite&logoColor=646CFF)](https://vite.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-20232A?style=for-the-badge&logo=tailwindcss&logoColor=06B6D4)](https://tailwindcss.com/)
+[![Mapbox](https://img.shields.io/badge/Mapbox_GL_JS-20232A?style=for-the-badge&logo=mapbox&logoColor=white)](https://docs.mapbox.com/mapbox-gl-js/)
+
+### Application Layer
+
+[![Python](https://img.shields.io/badge/Python_3.11-1F2937?style=for-the-badge&logo=python&logoColor=FFD43B)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-1F2937?style=for-the-badge&logo=fastapi&logoColor=009688)](https://fastapi.tiangolo.com/)
+[![Pydantic](https://img.shields.io/badge/Pydantic_v2-1F2937?style=for-the-badge&logo=pydantic&logoColor=E92063)](https://docs.pydantic.dev/)
+[![WebSockets](https://img.shields.io/badge/WebSockets-1F2937?style=for-the-badge&logo=socketdotio&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)
+[![Gemini](https://img.shields.io/badge/Gemini_AI-1F2937?style=for-the-badge&logo=googlegemini&logoColor=8E75B2)](https://ai.google.dev/gemini-api/docs)
+
+### Data & Infrastructure
+
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-111827?style=for-the-badge&logo=postgresql&logoColor=4169E1)](https://www.postgresql.org/)
+[![Neon](https://img.shields.io/badge/Neon-111827?style=for-the-badge&logo=neon&logoColor=00E599)](https://neon.tech/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-111827?style=for-the-badge&logo=sqlalchemy&logoColor=D71F00)](https://www.sqlalchemy.org/)
+[![Alembic](https://img.shields.io/badge/Alembic-111827?style=for-the-badge&logo=python&logoColor=white)](https://alembic.sqlalchemy.org/)
+[![OSRM](https://img.shields.io/badge/OSRM_Routing-111827?style=for-the-badge&logo=openstreetmap&logoColor=7EBC6F)](https://project-osrm.org/)
+[![Render](https://img.shields.io/badge/Render-111827?style=for-the-badge&logo=render&logoColor=46E3B7)](https://render.com/)
+
+</div>
+
+<details>
+<summary><strong>View stack responsibilities</strong></summary>
+
+| Layer | Current Stack |
+|---|---|
+| **Web application** | [React 18](https://react.dev/) · TypeScript · [Vite](https://vite.dev/) |
+| **Interface** | [Tailwind CSS](https://tailwindcss.com/) · Lucide icons · responsive role-based layouts |
+| **Client state** | React Context API · local cart persistence |
+| **Backend API** | Python 3.11 · [FastAPI](https://fastapi.tiangolo.com/) · Pydantic v2 |
+| **Authentication** | JWT · bcrypt · role and resource-level authorization |
+| **Database** | PostgreSQL on [Neon](https://neon.tech/) · SQLAlchemy · Alembic |
+| **Maps** | [Mapbox GL JS](https://docs.mapbox.com/mapbox-gl-js/) · GeoJSON route layers · browser GPS |
+| **Routing** | [OSRM](https://project-osrm.org/) road geometry, distance, and ETA |
+| **Inventory AI** | [Gemini](https://ai.google.dev/gemini-api/docs) primary · PaddleOCR optional CPU fallback |
+| **Geocoding** | Nominatim reverse geocoding · ipwho.is IP fallback |
+| **Real-time** | Authenticated FastAPI WebSockets · persisted tracking recovery |
+| **Deployment** | Render API · Neon PostgreSQL · static frontend hosting |
+
+</details>
 
 ---
 
