@@ -80,15 +80,20 @@
 
 /* Mapbox marker labels keep map annotations legible across responsive layouts. */
 .dukaan-map-marker {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transform: translateY(-50%);
+  position: relative;
+  width: 18px;
+  height: 18px;
   cursor: pointer;
   filter: drop-shadow(0 3px 4px rgb(15 23 42 / 18%));
 }
 
+.dukaan-map-marker--rider {
+  width: 22px;
+  height: 22px;
+}
+
 .dukaan-map-marker__dot {
+  display: block;
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
@@ -126,6 +131,9 @@
 }
 
 .dukaan-map-marker__label {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 7px);
   max-width: 220px;
   overflow: hidden;
   padding: 5px 8px;
@@ -137,5 +145,6 @@
   font-weight: 800;
   line-height: 1.1;
   text-overflow: ellipsis;
+  transform: translateY(-50%);
   white-space: nowrap;
 }

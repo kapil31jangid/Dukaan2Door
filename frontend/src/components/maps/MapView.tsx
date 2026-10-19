@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl, { GeoJSONSource, Map as MapboxMap, Marker as MapboxMarker } from 'mapbox-gl';
 import type { RouteGeometry } from '../../types/delivery';
-import { routeProgressForCoordinate, sampleRouteAtProgress } from '../../utils/trackingGeometry';
+import { coveredRouteFromProgress, remainingRouteFromProgress, routeProgressForCoordinate, sampleRouteAtProgress } from '../../utils/trackingGeometry';
 
 type LineStringGeometry = { type: 'LineString'; coordinates: [number, number][] };
 type PolygonFeature = { type: 'Feature'; properties: Record<string, unknown>; geometry: { type: 'Polygon'; coordinates: [number, number][][] } };
@@ -24,6 +24,7 @@ export interface MapMarker extends MapCoordinate {
   heading?: number | null;
   animate?: boolean;
   followRoute?: boolean;
+  routeProgress?: number;
 }
 
 export interface MapCircle extends MapCoordinate {
@@ -46,6 +47,7 @@ interface MapViewProps {
   interactive?: boolean;
   showControls?: boolean;
   fitToContent?: boolean;
+  followMarkerId?: string;
   onMapClick?: (coordinate: MapCoordinate) => void;
   errorMessage?: string;
 }
@@ -97,6 +99,7 @@ export const MapView: React.FC<MapViewProps> = ({
   interactive = true,
   showControls = true,
   fitToContent = true,
+  followMarkerId,
   onMapClick,
   errorMessage,
 }) => {
@@ -105,6 +108,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const markersRef = useRef<Map<string, MapboxMarker>>(new Map());
   const circleIdsRef = useRef<string[]>([]);
   const markerAnimationsRef = useRef<Map<string, number>>(new Map());
+  const markerRouteProgressRef = useRef<Map<string, number>>(new Map());
   const [isReady, setIsReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
 
@@ -142,6 +146,7 @@ export const MapView: React.FC<MapViewProps> = ({
     return () => {
       markerAnimationsRef.current.forEach((frame) => cancelAnimationFrame(frame));
       markerAnimationsRef.current.clear();
+      markerRouteProgressRef.current.clear();
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current.clear();
       map.remove();
@@ -160,6 +165,7 @@ export const MapView: React.FC<MapViewProps> = ({
         const frame = markerAnimationsRef.current.get(id);
         if (frame != null) cancelAnimationFrame(frame);
         markerAnimationsRef.current.delete(id);
+        markerRouteProgressRef.current.delete(id);
         marker.remove();
         markersRef.current.delete(id);
       }
@@ -188,16 +194,20 @@ export const MapView: React.FC<MapViewProps> = ({
           const startedAt = performance.now();
           const durationMs = 900;
           const fromProgress = markerData.followRoute
-            ? routeProgressForCoordinate(routeGeometry, { lat: from.lat, lng: from.lng })
+            ? markerRouteProgressRef.current.get(markerData.id)
+              ?? routeProgressForCoordinate(routeGeometry, { lat: from.lat, lng: from.lng })
             : null;
           const targetProgress = markerData.followRoute
-            ? routeProgressForCoordinate(routeGeometry, markerData)
+            ? markerData.routeProgress ?? routeProgressForCoordinate(routeGeometry, markerData)
             : null;
           const animate = (now: number) => {
             const progress = Math.min(1, (now - startedAt) / durationMs);
             const eased = 1 - (1 - progress) ** 3;
-            const routePosition = fromProgress != null && targetProgress != null && targetProgress >= fromProgress
-              ? sampleRouteAtProgress(routeGeometry, fromProgress + (targetProgress - fromProgress) * eased)
+            const animatedRouteProgress = fromProgress != null && targetProgress != null && targetProgress >= fromProgress
+              ? fromProgress + (targetProgress - fromProgress) * eased
+              : null;
+            const routePosition = animatedRouteProgress != null
+              ? sampleRouteAtProgress(routeGeometry, animatedRouteProgress)
               : null;
             existing.setLngLat(routePosition
               ? [routePosition.lng, routePosition.lat]
@@ -205,16 +215,32 @@ export const MapView: React.FC<MapViewProps> = ({
                 from.lng + (markerData.lng - from.lng) * eased,
                 from.lat + (markerData.lat - from.lat) * eased,
               ]);
+            if (animatedRouteProgress != null) {
+              markerRouteProgressRef.current.set(markerData.id, animatedRouteProgress);
+              const visibleRoute = remainingRouteFromProgress(routeGeometry, animatedRouteProgress);
+              const routeSource = map.getSource('dukaan-route') as GeoJSONSource | undefined;
+              const coveredSource = map.getSource('dukaan-route-covered') as GeoJSONSource | undefined;
+              if (visibleRoute && routeSource) {
+                routeSource.setData({ type: 'Feature', properties: {}, geometry: visibleRoute as LineStringGeometry });
+              }
+              const coveredRoute = coveredRouteFromProgress(routeGeometry, animatedRouteProgress);
+              if (coveredRoute && coveredSource) {
+                coveredSource.setData({ type: 'Feature', properties: {}, geometry: coveredRoute as LineStringGeometry });
+              }
+            }
             if (progress < 1) markerAnimationsRef.current.set(markerData.id, requestAnimationFrame(animate));
             else markerAnimationsRef.current.delete(markerData.id);
           };
           markerAnimationsRef.current.set(markerData.id, requestAnimationFrame(animate));
         } else {
           existing.setLngLat([markerData.lng, markerData.lat]);
+          if (markerData.followRoute && markerData.routeProgress != null) {
+            markerRouteProgressRef.current.set(markerData.id, markerData.routeProgress);
+          }
         }
         return;
       }
-      const marker = new mapboxgl.Marker({ element: markerElement(markerData), draggable: markerData.draggable, rotationAlignment: 'map' })
+      const marker = new mapboxgl.Marker({ element: markerElement(markerData), anchor: 'center', draggable: markerData.draggable, rotationAlignment: 'map' })
         .setLngLat([markerData.lng, markerData.lat])
         .addTo(map);
       if (markerData.onClick) marker.getElement().addEventListener('click', markerData.onClick);
@@ -223,6 +249,9 @@ export const MapView: React.FC<MapViewProps> = ({
         markerData.onDragEnd?.({ lat: lngLat.lat, lng: lngLat.lng });
       });
       markersRef.current.set(markerData.id, marker);
+      if (markerData.followRoute && markerData.routeProgress != null) {
+        markerRouteProgressRef.current.set(markerData.id, markerData.routeProgress);
+      }
     });
   }, [isReady, markers, routeGeometry]);
 
@@ -261,19 +290,39 @@ export const MapView: React.FC<MapViewProps> = ({
     const map = mapRef.current;
     if (!map || !isReady) return;
     const sourceId = 'dukaan-route';
+    const coveredSourceId = 'dukaan-route-covered';
     const existing = map.getSource(sourceId) as GeoJSONSource | undefined;
+    const existingCovered = map.getSource(coveredSourceId) as GeoJSONSource | undefined;
     if (routeGeometry?.coordinates?.length) {
-      const data = { type: 'Feature' as const, properties: {}, geometry: routeGeometry as LineStringGeometry };
+      const rider = markers.find((marker) => marker.kind === 'rider' && marker.followRoute);
+      const riderProgress = rider
+        ? markerRouteProgressRef.current.get(rider.id) ?? rider.routeProgress ?? routeProgressForCoordinate(routeGeometry, rider)
+        : null;
+      const visibleRoute = riderProgress != null
+        ? remainingRouteFromProgress(routeGeometry, riderProgress)
+        : routeGeometry;
+      const coveredRoute = riderProgress != null
+        ? coveredRouteFromProgress(routeGeometry, riderProgress)
+        : coveredRouteFromProgress(routeGeometry, 0);
+      const data = { type: 'Feature' as const, properties: {}, geometry: visibleRoute as LineStringGeometry };
+      const coveredData = { type: 'Feature' as const, properties: {}, geometry: coveredRoute as LineStringGeometry };
+      if (existingCovered) existingCovered.setData(coveredData);
+      else {
+        map.addSource(coveredSourceId, { type: 'geojson', data: coveredData });
+        map.addLayer({ id: 'dukaan-route-covered-line', type: 'line', source: coveredSourceId, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#94a3b8', 'line-width': 5, 'line-opacity': 0.75 } });
+      }
       if (existing) existing.setData(data);
       else {
         map.addSource(sourceId, { type: 'geojson', data });
         map.addLayer({ id: 'dukaan-route-line', type: 'line', source: sourceId, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#1677e8', 'line-width': 5, 'line-opacity': 0.85 } });
       }
-    } else if (map.getLayer('dukaan-route-line')) {
-      map.removeLayer('dukaan-route-line');
+    } else if (map.getLayer('dukaan-route-line') || map.getLayer('dukaan-route-covered-line')) {
+      if (map.getLayer('dukaan-route-line')) map.removeLayer('dukaan-route-line');
       if (map.getSource(sourceId)) map.removeSource(sourceId);
+      if (map.getLayer('dukaan-route-covered-line')) map.removeLayer('dukaan-route-covered-line');
+      if (map.getSource(coveredSourceId)) map.removeSource(coveredSourceId);
     }
-  }, [isReady, routeGeometry]);
+  }, [isReady, markers, routeGeometry]);
 
   const routeStart = routeGeometry?.coordinates?.[0];
   const routeEnd = routeGeometry?.coordinates?.[routeGeometry.coordinates.length - 1];
@@ -297,6 +346,13 @@ export const MapView: React.FC<MapViewProps> = ({
     const bounds = points.reduce((result, point) => result.extend(point), new mapboxgl.LngLatBounds(points[0], points[0]));
     map.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 450 });
   }, [center.lat, center.lng, fitSignature, fitToContent, isReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isReady || !followMarkerId) return;
+    const marker = markers.find((item) => item.id === followMarkerId && validCoordinate(item));
+    if (marker) map.easeTo({ center: [marker.lng, marker.lat], duration: 180 });
+  }, [followMarkerId, isReady, markers]);
 
   const visibleError = errorMessage || mapError;
   return <div className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-inner ${className}`} style={{ height }}>

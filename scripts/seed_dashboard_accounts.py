@@ -36,9 +36,9 @@ CUSTOMERS = [
         "email": "rahul@example.com",
         "name": "Rahul Sharma",
         "phone": "9000000003",
-        "address": "Satellite Road, Ramdev Nagar, Ahmedabad 380015",
-        "lat": 23.0276,
-        "lng": 72.5076,
+        "address": "Prahlad Nagar Road, Ahmedabad 380015",
+        "lat": 23.0159,
+        "lng": 72.5108,
     },
 ]
 
@@ -61,6 +61,15 @@ RETAILERS = [
         "lat": 23.0285,
         "lng": 72.5090,
     },
+    {
+        "email": "satellite.retailer.priya@example.com",
+        "name": "Priya Satellite Retailer",
+        "phone": "+91 98250 11008",
+        "store_name": "Priya Satellite Fresh Mart",
+        "address": "Ramdev Nagar Road, Satellite, Ahmedabad 380015",
+        "lat": 23.0263,
+        "lng": 72.5063,
+    },
 ]
 
 PARTNERS = [
@@ -80,6 +89,15 @@ PARTNERS = [
         # Approximately 3 km east of the Satellite store.
         "lat": 23.0276,
         "lng": 72.5368,
+    },
+    {
+        "email": "satellite.rider.meera@example.com",
+        "name": "Rider Meera (Satellite)",
+        "phone": "+91 98250 20008",
+        "vehicle": "Honda Activa (GJ-01-PQ-1008)",
+        "capabilities": "NORMAL,FROZEN_BOX",
+        "lat": 23.0320,
+        "lng": 72.5120,
     },
 ]
 
@@ -149,6 +167,7 @@ def seed(db) -> None:
         profile.name = item["name"]
         profile.phone = item["phone"]
         profile.vehicle_info = item["vehicle"]
+        profile.capabilities = item.get("capabilities", "NORMAL")
         profile.current_lat = item["lat"]
         profile.current_lng = item["lng"]
         profile.is_available = True

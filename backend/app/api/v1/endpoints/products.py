@@ -4,6 +4,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 from app.core.deps import UserContext, get_db, require_role
 from app.models.inventory import Inventory
+from app.models.inventory_adjustment import InventoryAdjustment
 from app.models.product import Product
 from app.schemas.product import (
     PaginatedProductResponse,
@@ -46,14 +47,27 @@ def create_product(
     )
     db.add(product)
     db.flush()
-    db.add(
-        Inventory(
-            store_id=store.id,
-            product_id=product.id,
-            quantity=payload.initial_stock,
-            is_available=payload.is_available,
-        )
+    inventory = Inventory(
+        store_id=store.id,
+        product_id=product.id,
+        quantity=payload.initial_stock,
+        is_available=payload.is_available,
     )
+    db.add(inventory)
+    db.flush()
+    if payload.initial_stock:
+        db.add(
+            InventoryAdjustment(
+                inventory_id=inventory.id,
+                store_id=store.id,
+                product_id=product.id,
+                delta=payload.initial_stock,
+                quantity_after=payload.initial_stock,
+                source="PRODUCT_CREATE",
+                actor_user_id=current_user.user_id,
+                note="NEW_STOCK_RECEIVED",
+            )
+        )
     db.commit()
     db.refresh(product)
     return ProductResponse(**product_to_response(product))
@@ -152,7 +166,7 @@ def update_product(
 ):
     """Update title, description, category, price, or active status of own product."""
     store = get_store_for_retailer_user(db, current_user.user_id)
-    product = db.query(Product).filter(Product.id == product_id, Product.store_id == store.id).first() if store else None
+    product = db.query(Product).filter(Product.id == product_id, Product.store_id == store.id).with_for_update().first() if store else None
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -195,19 +209,35 @@ def update_product_availability(
 ):
     """Update is_available toggle and stock quantity for store inventory."""
     store = get_store_for_retailer_user(db, current_user.user_id)
-    product = db.query(Product).filter(Product.id == product_id, Product.store_id == store.id).first() if store else None
+    product = db.query(Product).filter(Product.id == product_id, Product.store_id == store.id).with_for_update().first() if store else None
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
-    inventory = next(
-        (item for item in product.inventory if item.store_id == product.store_id),
-        None,
+    inventory = (
+        db.query(Inventory)
+        .filter(Inventory.store_id == store.id, Inventory.product_id == product.id)
+        .with_for_update()
+        .first()
     )
     if not inventory:
         inventory = Inventory(store_id=store.id, product_id=product.id, quantity=0)
         db.add(inventory)
+        db.flush()
     inventory.is_available = payload.is_available
-    if payload.quantity is not None:
+    if payload.quantity is not None and payload.quantity != inventory.quantity:
+        before = inventory.quantity
         inventory.quantity = payload.quantity
+        db.add(
+            InventoryAdjustment(
+                inventory_id=inventory.id,
+                store_id=store.id,
+                product_id=product.id,
+                delta=payload.quantity - before,
+                quantity_after=payload.quantity,
+                source="LEGACY_STOCK_EDIT",
+                actor_user_id=current_user.user_id,
+                note="MANUAL_CORRECTION",
+            )
+        )
     db.commit()
     db.refresh(product)
     return ProductResponse(**product_to_response(product))

@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import math
 from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.customer import Customer
 from app.models.delivery import Delivery, DeliveryRejection, DeliveryStatus, DeliveryTracking
 from app.models.delivery_partner import DeliveryPartner
@@ -32,6 +34,9 @@ VALID_DELIVERY_TRANSITIONS = {
     DeliveryStatus.DELIVERED: set(),
     DeliveryStatus.CANCELLED: set(),
 }
+
+DELIVERY_ARRIVAL_RADIUS_M = 100.0
+MAX_GPS_ACCURACY_ALLOWANCE_M = 100.0
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,20 @@ def required_capabilities_for_order(db: Session, order: Order) -> set[str]:
 
 def partner_can_fulfil_order(db: Session, partner: DeliveryPartner, order: Order) -> bool:
     return required_capabilities_for_order(db, order).issubset(partner_capabilities(partner))
+
+
+def partner_declined_order(db: Session, partner: DeliveryPartner, order: Order) -> bool:
+    if not order.delivery:
+        return False
+    return (
+        db.query(DeliveryRejection)
+        .filter(
+            DeliveryRejection.delivery_id == order.delivery.id,
+            DeliveryRejection.delivery_partner_id == partner.id,
+        )
+        .first()
+        is not None
+    )
 
 
 def get_delivery_or_404(db: Session, delivery_id: int) -> Delivery:
@@ -108,9 +127,15 @@ def get_available_partners_for_order(db: Session, order_id: int) -> list[dict]:
     )
     results = []
     for partner in partners:
-        if not has_valid_coordinates(partner.current_lat, partner.current_lng) or not partner_can_fulfil_order(db, partner, order):
+        if (
+            not has_valid_coordinates(partner.current_lat, partner.current_lng)
+            or not partner_can_fulfil_order(db, partner, order)
+            or partner_declined_order(db, partner, order)
+        ):
             continue
         dist = calculate_distance_km(float(store.lat), float(store.lng), float(partner.current_lat), float(partner.current_lng))
+        if dist > 5:
+            continue
         results.append({
             "id": partner.id,
             "name": partner.name,
@@ -151,8 +176,15 @@ def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Specified delivery partner is unavailable")
         if not partner_can_fulfil_order(db, partner, order):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Partner does not have the equipment required for this order")
+        if partner_declined_order(db, partner, order):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This delivery offer was declined by the partner")
         if partner.current_lat is not None and partner.current_lng is not None:
             distance = calculate_distance_km(float(store.lat), float(store.lng), float(partner.current_lat), float(partner.current_lng))
+            if distance > 5:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Partner is outside the 5 km delivery offer radius",
+                )
     else:
         partners = (
             db.query(DeliveryPartner)
@@ -168,6 +200,8 @@ def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int
             if not has_valid_coordinates(p.current_lat, p.current_lng):
                 continue
             if not partner_can_fulfil_order(db, p, order):
+                continue
+            if partner_declined_order(db, p, order):
                 continue
             dist = calculate_distance_km(float(store.lat), float(store.lng), float(p.current_lat), float(p.current_lng))
             candidates.append((dist, p.id, p))
@@ -201,6 +235,67 @@ def assign_delivery_partner(db: Session, order_id: int, partner_id: Optional[int
     return DeliveryAssignmentResult(True, delivery=delivery, distance_km=round(distance, 3))
 
 
+def decline_available_order(
+    db: Session,
+    order_id: int,
+    partner: DeliveryPartner,
+    reason: Optional[str] = None,
+) -> None:
+    order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    if order.status != OrderStatus.READY_FOR_PICKUP:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only ready delivery offers can be declined")
+    if order.delivery and order.delivery.delivery_partner_id is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order has already been claimed")
+    if not partner.is_available or not has_valid_coordinates(partner.current_lat, partner.current_lng):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Partner is not eligible for delivery offers")
+    if not order.store or not has_valid_coordinates(order.store.lat, order.store.lng):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Store pickup coordinates are unavailable")
+    distance = calculate_distance_km(
+        float(order.store.lat),
+        float(order.store.lng),
+        float(partner.current_lat),
+        float(partner.current_lng),
+    )
+    if distance > 5 or not partner_can_fulfil_order(db, partner, order):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Partner is not eligible for this delivery offer")
+
+    delivery = order.delivery
+    if delivery is None:
+        delivery = Delivery(
+            order_id=order.id,
+            delivery_partner_id=None,
+            status=DeliveryStatus.ASSIGNED,
+            pickup_address=order.store.address,
+            pickup_lat=order.store.lat,
+            pickup_lng=order.store.lng,
+            destination_address=order.delivery_address,
+            destination_lat=order.delivery_lat,
+            destination_lng=order.delivery_lng,
+        )
+        db.add(delivery)
+        db.flush()
+
+    existing = (
+        db.query(DeliveryRejection)
+        .filter(
+            DeliveryRejection.delivery_id == delivery.id,
+            DeliveryRejection.delivery_partner_id == partner.id,
+        )
+        .first()
+    )
+    if not existing:
+        db.add(
+            DeliveryRejection(
+                delivery_id=delivery.id,
+                delivery_partner_id=partner.id,
+                reason=reason,
+            )
+        )
+    db.commit()
+
+
 def reject_delivery_assignment(db: Session, delivery_id: int, partner: DeliveryPartner, reason: Optional[str] = None) -> Delivery:
     delivery = db.query(Delivery).filter(Delivery.id == delivery_id).with_for_update().first()
     if not delivery:
@@ -225,11 +320,87 @@ def update_delivery_status(db: Session, delivery: Delivery, target_status: Deliv
             detail=f"Invalid delivery status transition from '{delivery.status.value}' to '{target_status.value}'",
         )
 
+    if target_status == DeliveryStatus.PICKED_UP and settings.route_playback_enabled:
+        pickup_arrival = (
+            db.query(DeliveryTracking)
+            .filter(
+                DeliveryTracking.delivery_id == delivery.id,
+                DeliveryTracking.source == "ROUTE_PLAYBACK",
+                DeliveryTracking.status == DeliveryStatus.ACCEPTED,
+            )
+            .order_by(DeliveryTracking.recorded_at.desc(), DeliveryTracking.id.desc())
+            .first()
+        )
+        if pickup_arrival is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The rider is still travelling to the pickup store",
+            )
+        pickup_distance_m = calculate_distance_km(
+            pickup_arrival.lat,
+            pickup_arrival.lng,
+            delivery.pickup_lat,
+            delivery.pickup_lng,
+        ) * 1000
+        if pickup_distance_m > DELIVERY_ARRIVAL_RADIUS_M:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"The rider must reach the pickup store first ({round(pickup_distance_m)} m remaining)",
+            )
+        dwell_elapsed = (datetime.utcnow() - pickup_arrival.recorded_at).total_seconds()
+        if dwell_elapsed < settings.PICKUP_DWELL_SECONDS:
+            remaining = max(1, math.ceil(settings.PICKUP_DWELL_SECONDS - dwell_elapsed))
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Pickup verification is available in {remaining} seconds",
+            )
+
+    if target_status == DeliveryStatus.DELIVERED:
+        journey_distance_m = calculate_distance_km(
+            delivery.pickup_lat,
+            delivery.pickup_lng,
+            delivery.destination_lat,
+            delivery.destination_lng,
+        ) * 1000
+        if journey_distance_m > DELIVERY_ARRIVAL_RADIUS_M:
+            latest_position = (
+                db.query(DeliveryTracking)
+                .filter(
+                    DeliveryTracking.delivery_id == delivery.id,
+                    DeliveryTracking.source != "LIFECYCLE",
+                )
+                .order_by(DeliveryTracking.recorded_at.desc(), DeliveryTracking.id.desc())
+                .first()
+            )
+            if latest_position is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="A current rider location is required before marking the delivery complete",
+                )
+            distance_m = calculate_distance_km(
+                latest_position.lat,
+                latest_position.lng,
+                delivery.destination_lat,
+                delivery.destination_lng,
+            ) * 1000
+            accuracy_allowance_m = min(
+                MAX_GPS_ACCURACY_ALLOWANCE_M,
+                max(0.0, latest_position.accuracy_m or 0.0),
+            )
+            allowed_distance_m = DELIVERY_ARRIVAL_RADIUS_M + accuracy_allowance_m
+            if distance_m > allowed_distance_m:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "The rider must reach the customer before marking the delivery complete "
+                        f"({round(distance_m)} m remaining)"
+                    ),
+                )
+
     now = datetime.now(timezone.utc)
     delivery.status = target_status
     if target_status == DeliveryStatus.PICKED_UP:
         delivery.picked_up_at = now
-        delivery.order.status = OrderStatus.OUT_FOR_DELIVERY
     elif target_status == DeliveryStatus.OUT_FOR_DELIVERY:
         delivery.order.status = OrderStatus.OUT_FOR_DELIVERY
     elif target_status == DeliveryStatus.DELIVERED:

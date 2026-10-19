@@ -63,6 +63,7 @@ export interface InventoryDraftItem {
   size?: string | null;
   price?: number | null;
   total_price?: number | null;
+  printed_mrp?: number | null;
   category?: string | null;
   expiry_date?: string | null;
   handling_type?: Product['handling_type'] | null;
@@ -72,6 +73,47 @@ export interface InventoryDraftItem {
   review_reason?: string | null;
   warnings: string[];
   possible_existing_product_id?: number | null;
+  catalog_matches?: CatalogMatchCandidate[];
+  adjustment_direction?: InventoryAdjustmentDirection;
+  adjustment_reason?: InventoryAdjustmentReason;
+}
+
+export interface CatalogMatchCandidate {
+  product_id: number;
+  name: string;
+  brand?: string | null;
+  unit: string;
+  current_stock: number;
+  price: number;
+  match_reason: string;
+}
+
+export type InventoryAdjustmentDirection = 'ADD' | 'REDUCE';
+export type InventoryAdjustmentReason =
+  | 'NEW_STOCK_RECEIVED'
+  | 'OFFLINE_SALE'
+  | 'DAMAGED_PRODUCT'
+  | 'EXPIRED_PRODUCT'
+  | 'MANUAL_CORRECTION';
+
+export interface InventoryStockAdjustmentRequest {
+  product_id: number;
+  direction: InventoryAdjustmentDirection;
+  quantity: number;
+  reason: InventoryAdjustmentReason;
+  source: 'PRODUCT_PHOTO' | 'MANUAL_ADJUSTMENT';
+  confirmation_id: string;
+}
+
+export interface InventoryStockAdjustmentResult {
+  product_id: number;
+  inventory_id: number;
+  direction: InventoryAdjustmentDirection;
+  quantity: number;
+  reason: InventoryAdjustmentReason;
+  quantity_before: number;
+  quantity_after: number;
+  confirmation_id: string;
 }
 
 export interface InventoryConfirmItem {
@@ -94,6 +136,7 @@ export interface InventoryAnalysisResponse {
   provider: string;
   raw_text_available: boolean;
   document_type?: string | null;
+  analysis_mode?: 'DOCUMENT' | 'PRODUCT_PHOTO';
   warnings?: string[];
   ocr_lines: Array<{
     text: string;

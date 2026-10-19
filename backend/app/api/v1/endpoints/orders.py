@@ -1,16 +1,22 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import false
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, false, or_
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.deps import UserContext, get_current_user, get_db, require_role
 from app.integrations.notifier import notify_order_status
 from app.models.customer import Customer
 from app.models.delivery import Delivery, DeliveryStatus as ModelDeliveryStatus
 from app.models.delivery_partner import DeliveryPartner
-from app.models.inventory import Inventory
-from app.models.inventory_adjustment import InventoryAdjustment
-from app.models.order import Order, OrderItem, OrderStatus as ModelOrderStatus
+from app.models.order import (
+    Order,
+    OrderItem,
+    OrderStatus as ModelOrderStatus,
+    RetailerOfferStatus,
+    RetailerOrderOffer,
+    RetailerOrderOfferItem,
+)
 from app.models.product import Product
 from app.models.retailer import Retailer
 from app.models.store import Store
@@ -24,11 +30,25 @@ from app.schemas.order import (
     OrderStatusUpdate,
     OrderUpdate,
 )
-from app.services.order_service import validate_status_transition
+from app.services.order_service import (
+    accept_retailer_offer,
+    expire_retailer_offers,
+    reject_retailer_offer,
+    retailer_store_id,
+    validate_status_transition,
+)
 from app.services.geo_service import validate_coordinates
-from app.services.store_matching_service import RequestedItem, find_matching_store
+from app.services.store_matching_service import RequestedItem, find_eligible_stores
 
 router = APIRouter(prefix="/orders", tags=["Order Management & Lifecycle"])
+
+
+ORDER_RESPONSE_LOAD_OPTIONS = (
+    joinedload(Order.store),
+    joinedload(Order.delivery).joinedload(Delivery.delivery_partner),
+    selectinload(Order.items).joinedload(OrderItem.product),
+    selectinload(Order.retailer_offers),
+)
 
 
 def _schema_status(model_status: ModelOrderStatus) -> OrderStatus:
@@ -45,9 +65,10 @@ def _utc_naive(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _order_to_response(order: Order) -> OrderResponse:
+def _order_to_response(order: Order, retailer_store_id: Optional[int] = None) -> OrderResponse:
     partner = order.delivery.delivery_partner if order.delivery and order.delivery.delivery_partner else None
     store = order.store
+    retailer_offer = next((offer for offer in order.retailer_offers if offer.store_id == retailer_store_id), None)
     return OrderResponse(
         id=order.id,
         customer_id=order.customer_id,
@@ -83,11 +104,19 @@ def _order_to_response(order: Order) -> OrderResponse:
             )
             for item in order.items
         ],
+        retailer_offer_status=retailer_offer.status.value if retailer_offer else None,
+        retailer_offer_expires_at=retailer_offer.expires_at.isoformat() if retailer_offer else None,
+        retailer_pool_size=len(order.retailer_offers),
     )
 
 
 def _get_authorized_order(db: Session, order_id: int, current_user: UserContext) -> Order:
-    order = db.query(Order).filter(Order.id == order_id).first()
+    order = (
+        db.query(Order)
+        .options(*ORDER_RESPONSE_LOAD_OPTIONS)
+        .filter(Order.id == order_id)
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
@@ -96,7 +125,13 @@ def _get_authorized_order(db: Session, order_id: int, current_user: UserContext)
         allowed = customer and order.customer_id == customer.id
     elif current_user.role == "retailer":
         retailer = db.query(Retailer).filter(Retailer.user_id == current_user.user_id).first()
-        allowed = retailer and retailer.store and order.store_id == retailer.store.id
+        allowed = bool(retailer and retailer.store and (
+            order.store_id == retailer.store.id
+            or any(
+                offer.store_id == retailer.store.id and offer.status == RetailerOfferStatus.PENDING
+                for offer in order.retailer_offers
+            )
+        ))
     elif current_user.role == "delivery_partner":
         partner = db.query(DeliveryPartner).filter(DeliveryPartner.user_id == current_user.user_id).first()
         allowed = bool(order.delivery and partner and order.delivery.delivery_partner_id == partner.id)
@@ -122,16 +157,23 @@ def create_order(
     """
     Create a new customer order.
     Steps performed atomically:
-      a) Validate items and non-negative quantities
-      b) Call store matching algorithm (Kapil's integration)
-      c) Lock inventory rows & verify stock
-      d) Take prices strictly from DB
-      e) Create order record with status 'RECEIVED'
-      f) Trigger non-blocking order status notification
+      a) Validate items, address, coordinates, and quantities
+      b) Find every store in the active service-radius tier that can fill the cart
+      c) Create one order and one read-only opportunity per eligible store
+      d) Take prices strictly from the database
+      e) Defer stock mutation until one retailer atomically accepts
+      f) Trigger the non-blocking order-status notification hook
     """
     customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
     if not customer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer profile not found")
+    if payload.checkout_token:
+        existing = db.query(Order).filter(
+            Order.customer_id == customer.id,
+            Order.checkout_token == payload.checkout_token,
+        ).first()
+        if existing:
+            return _order_to_response(existing)
 
     delivery_lat = payload.delivery_lat if payload.delivery_lat is not None else customer.lat
     delivery_lng = payload.delivery_lng if payload.delivery_lng is not None else customer.lng
@@ -146,19 +188,18 @@ def create_order(
     for item in payload.items:
         requested[item.product_id] = requested.get(item.product_id, 0) + item.quantity
 
-    match = find_matching_store(
+    matches = find_eligible_stores(
         db,
         float(delivery_lat),
         float(delivery_lng),
         [RequestedItem(product_id=product_id, quantity=quantity) for product_id, quantity in requested.items()],
     )
-    if not match.matched or match.store_id is None:
+    if not matches:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=match.reason or "No eligible store found for this order",
+            detail="No eligible store found for this order",
         )
 
-    store_id = match.store_id
     try:
         products = (
             db.query(Product)
@@ -171,78 +212,73 @@ def create_order(
         if len(products) != len(requested):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Some requested products are no longer available")
 
-        inventory_by_product = {
-            inventory.product_id: inventory
-            for inventory in (
-                db.query(Inventory)
-                .filter(
-                    Inventory.store_id == store_id,
-                    Inventory.product_id.in_(requested.keys()),
-                )
-                .with_for_update()
-                .all()
-            )
-        }
-
         total_amount = 0.0
         order = Order(
             customer_id=customer.id,
-            store_id=store_id,
+            store_id=None,
             status=ModelOrderStatus.RECEIVED,
             total_amount=0.0,
             delivery_address=delivery_address,
             delivery_lat=delivery_lat,
             delivery_lng=delivery_lng,
             notes=payload.notes,
+            checkout_token=payload.checkout_token,
         )
         db.add(order)
         db.flush()
 
+        order_items_by_requested_product: dict[int, OrderItem] = {}
         for product in products:
             quantity = requested[product.id]
-            inventory = inventory_by_product.get(product.id)
-            if not inventory:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Product '{product.name}' is not stocked by the matched store",
-                )
-
-            if not inventory.is_available or inventory.quantity < quantity:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Insufficient inventory for '{product.name}'",
-                )
-
             subtotal = round(product.price * quantity, 2)
             total_amount += subtotal
-            inventory.quantity -= quantity
-            db.add(
-                InventoryAdjustment(
-                    inventory_id=inventory.id,
-                    store_id=store_id,
-                    product_id=product.id,
-                    delta=-quantity,
-                    quantity_after=inventory.quantity,
-                    source="ORDER",
-                    note=f"Order #{order.id}",
-                )
+            order_item = OrderItem(
+                order_id=order.id,
+                product_id=product.id,
+                product_name=product.name,
+                quantity=quantity,
+                unit_price=product.price,
+                subtotal=subtotal,
             )
-            db.add(
-                OrderItem(
-                    order_id=order.id,
-                    product_id=product.id,
-                    product_name=product.name,
-                    quantity=quantity,
-                    unit_price=product.price,
-                    subtotal=subtotal,
-                )
+            db.add(order_item)
+            db.flush()
+            order_items_by_requested_product[product.id] = order_item
+
+        expires_at = datetime.utcnow() + timedelta(minutes=15)
+        for match in matches:
+            offer = RetailerOrderOffer(
+                order_id=order.id,
+                store_id=match.store_id,
+                status=RetailerOfferStatus.PENDING,
+                distance_km=match.distance_km,
+                expires_at=expires_at,
             )
+            db.add(offer)
+            db.flush()
+            for matched_item in match.items:
+                db.add(RetailerOrderOfferItem(
+                    offer_id=offer.id,
+                    order_item_id=order_items_by_requested_product[matched_item.requested_product_id].id,
+                    product_id=matched_item.product_id,
+                    inventory_id=matched_item.inventory_id,
+                    quantity=matched_item.quantity,
+                ))
 
         order.total_amount = round(total_amount, 2)
         db.commit()
         db.refresh(order)
     except HTTPException:
         db.rollback()
+        raise
+    except IntegrityError:
+        db.rollback()
+        if payload.checkout_token:
+            existing = db.query(Order).filter(
+                Order.customer_id == customer.id,
+                Order.checkout_token == payload.checkout_token,
+            ).first()
+            if existing:
+                return _order_to_response(existing)
         raise
 
     notify_order_status(order.id, OrderStatus.RECEIVED.value)
@@ -269,13 +305,29 @@ def get_order_history(
     - Retailer: returns store orders
     - Delivery Partner: returns assigned deliveries
     """
-    query = db.query(Order)
+    query = db.query(Order).options(*ORDER_RESPONSE_LOAD_OPTIONS)
+    retailer = None
     if current_user.role == "customer":
         customer = db.query(Customer).filter(Customer.user_id == current_user.user_id).first()
         query = query.filter(Order.customer_id == customer.id) if customer else query.filter(false())
     elif current_user.role == "retailer":
-        retailer = db.query(Retailer).filter(Retailer.user_id == current_user.user_id).first()
-        query = query.filter(Order.store_id == retailer.store.id) if retailer and retailer.store else query.filter(false())
+        retailer = (
+            db.query(Retailer)
+            .options(joinedload(Retailer.store))
+            .filter(Retailer.user_id == current_user.user_id)
+            .first()
+        )
+        if retailer and retailer.store:
+            expire_retailer_offers(db)
+            query = query.outerjoin(RetailerOrderOffer).filter(or_(
+                Order.store_id == retailer.store.id,
+                and_(
+                    RetailerOrderOffer.store_id == retailer.store.id,
+                    RetailerOrderOffer.status == RetailerOfferStatus.PENDING,
+                ),
+            )).distinct()
+        else:
+            query = query.filter(false())
     elif current_user.role == "delivery_partner":
         partner = db.query(DeliveryPartner).filter(DeliveryPartner.user_id == current_user.user_id).first()
         query = query.join(Order.delivery).filter(Delivery.delivery_partner_id == partner.id) if partner else query.filter(false())
@@ -296,7 +348,8 @@ def get_order_history(
         query = query.filter(Order.created_at < end)
 
     orders = query.order_by(Order.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return [_order_to_response(order) for order in orders]
+    response_store_id = retailer.store.id if current_user.role == "retailer" and retailer and retailer.store else None
+    return [_order_to_response(order, response_store_id) for order in orders]
 
 
 @router.get(
@@ -310,7 +363,42 @@ def get_order(
     db: Session = Depends(get_db),
 ):
     """Get single order by ID with ownership permission checks."""
-    return _order_to_response(_get_authorized_order(db, order_id, current_user))
+    order = _get_authorized_order(db, order_id, current_user)
+    response_store_id = retailer_store_id(db, current_user.user_id) if current_user.role == "retailer" else None
+    return _order_to_response(order, response_store_id)
+
+
+@router.post(
+    "/{order_id}/retailer-accept",
+    response_model=OrderResponse,
+    summary="Atomically accept a retailer order opportunity",
+)
+def accept_order_opportunity(
+    order_id: int,
+    current_user: UserContext = Depends(require_role(["retailer"])),
+    db: Session = Depends(get_db),
+):
+    store_id = retailer_store_id(db, current_user.user_id)
+    order = accept_retailer_offer(db, order_id, store_id, current_user.user_id)
+    notify_order_status(order.id, OrderStatus.ACCEPTED.value)
+    return _order_to_response(order, store_id)
+
+
+@router.post(
+    "/{order_id}/retailer-reject",
+    response_model=OrderResponse,
+    summary="Reject this retailer's order opportunity",
+)
+def reject_order_opportunity(
+    order_id: int,
+    current_user: UserContext = Depends(require_role(["retailer"])),
+    db: Session = Depends(get_db),
+):
+    store_id = retailer_store_id(db, current_user.user_id)
+    order = reject_retailer_offer(db, order_id, store_id)
+    if order.status == ModelOrderStatus.REJECTED:
+        notify_order_status(order.id, OrderStatus.REJECTED.value)
+    return _order_to_response(order, store_id)
 
 
 @router.patch(
@@ -328,9 +416,28 @@ def update_order_status_endpoint(
     Single entry point for order status changes.
     Enforces state machine rules:
       RECEIVED -> ACCEPTED -> PREPARING -> READY_FOR_PICKUP -> OUT_FOR_DELIVERY -> DELIVERED
-      Terminal states: REJECTED, CANCELLED (triggers stock restoration)
+      Terminal states: REJECTED, CANCELLED. Customer cancellation is limited to
+      RECEIVED, before any retailer acceptance or stock deduction.
     """
     order = _get_authorized_order(db, order_id, current_user)
+    retailer_store = None
+    if current_user.role == "retailer":
+        retailer_store = retailer_store_id(db, current_user.user_id)
+        if order.status != ModelOrderStatus.RECEIVED and order.store_id != retailer_store:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the retailer that accepted this order can update its fulfilment status",
+            )
+    if current_user.role == "retailer" and order.status == ModelOrderStatus.RECEIVED:
+        if payload.status == OrderStatus.ACCEPTED:
+            order = accept_retailer_offer(db, order_id, retailer_store, current_user.user_id)
+            notify_order_status(order.id, payload.status.value)
+            return _order_to_response(order, retailer_store)
+        if payload.status == OrderStatus.REJECTED:
+            order = reject_retailer_offer(db, order_id, retailer_store)
+            if order.status == ModelOrderStatus.REJECTED:
+                notify_order_status(order.id, payload.status.value)
+            return _order_to_response(order, retailer_store)
     current_status = _schema_status(order.status)
     validate_status_transition(
         current_status=current_status,
@@ -354,6 +461,11 @@ def update_order_status_endpoint(
             )
 
     order.status = _model_status(payload.status)
+    if payload.status == OrderStatus.CANCELLED:
+        db.query(RetailerOrderOffer).filter(
+            RetailerOrderOffer.order_id == order.id,
+            RetailerOrderOffer.status == RetailerOfferStatus.PENDING,
+        ).update({RetailerOrderOffer.status: RetailerOfferStatus.LOST}, synchronize_session=False)
     db.commit()
     db.refresh(order)
     notify_order_status(order_id, payload.status.value)

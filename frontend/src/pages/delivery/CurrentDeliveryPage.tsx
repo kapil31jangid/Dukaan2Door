@@ -1,20 +1,26 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, Clock3, MapPin, Navigation, Package, Phone, Store, Truck } from 'lucide-react';
+import { ArrowRight, CheckCircle2, MapPin, Navigation } from 'lucide-react';
 import { deliveryService } from '../../services/deliveryService';
-import { Delivery, DeliveryStatus, RouteResponse } from '../../types/delivery';
+import { Delivery, DeliveryStatus, DeliveryTrackingPoint, RouteResponse } from '../../types/delivery';
 import { Order } from '../../types/order';
-import { DeliveryPartnerProfile } from '../../types/user';
 import { DeliveryMap } from '../../components/maps/DeliveryMap';
 import { PartnerLocationTracker } from '../../components/delivery/PartnerLocationTracker';
 import { Button } from '../../components/ui/Button';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
-import { RouteRefreshSnapshot, sampleRouteAtProgress, shouldRefreshRoute } from '../../utils/trackingGeometry';
+import { DeliveryWebSocketClient } from '../../services/websocketService';
+import {
+  bearingDegrees,
+  distanceMeters,
+  isNewerTrackingPoint,
+  routeProgressForCoordinate,
+  RouteRefreshSnapshot,
+  shouldRefreshRoute,
+} from '../../utils/trackingGeometry';
 
-const demoPlaybackEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_ROUTE_PLAYBACK === 'true';
-const configuredDemoSeconds = Number(import.meta.env.VITE_DEMO_ROUTE_DURATION_SECONDS || 45);
-const demoDurationMs = Math.max(15000, Math.min(180000, configuredDemoSeconds * 1000));
+const routePlaybackEnabled = import.meta.env.VITE_ENABLE_ROUTE_PLAYBACK === 'true';
+const pickupDwellSeconds = 120;
 
 const steps: Array<{ status: DeliveryStatus; label: string; detail: string }> = [
   { status: 'PICKED_UP', label: 'Picked up', detail: 'Order collected from store' },
@@ -22,167 +28,219 @@ const steps: Array<{ status: DeliveryStatus; label: string; detail: string }> = 
   { status: 'DELIVERED', label: 'Delivered', detail: 'Order handed to customer' },
 ];
 
-const statusIndex = (status: DeliveryStatus) => status === 'ASSIGNED' ? -1 : status === 'ACCEPTED' ? -1 : steps.findIndex((step) => step.status === status);
+const statusIndex = (status: DeliveryStatus) => status === 'ASSIGNED' || status === 'ACCEPTED'
+  ? -1
+  : steps.findIndex((step) => step.status === status);
 
 export const CurrentDeliveryPage: React.FC = () => {
   const mutation = useRef(false);
+  const loadInFlight = useRef(false);
+  const hasLoadedCurrentDelivery = useRef(false);
   const activeDeliveryId = useRef<number | null>(null);
+  const latestLocation = useRef<DeliveryTrackingPoint | null>(null);
   const routeController = useRef<AbortController | null>(null);
   const routeRequestId = useRef(0);
-  const demoStartedDeliveryId = useRef<number | null>(null);
-  const demoProgress = useRef(0);
   const lastRouteRequest = useRef<RouteRefreshSnapshot | null>(null);
+  const wsRef = useRef<DeliveryWebSocketClient | null>(null);
   const [completedId, setCompletedId] = useState<number | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [route, setRoute] = useState<RouteResponse | null>(null);
-  const [profile, setProfile] = useState<DeliveryPartnerProfile | null>(null);
-  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number; accuracyM?: number; recordedAt?: string; heading?: number | null; source?: 'GPS' | 'DEMO_SIMULATION' | 'LIFECYCLE' } | null>(null);
-  const [demoState, setDemoState] = useState<'waiting' | 'playing' | 'arrived' | 'error'>('waiting');
-  const [demoRetryKey, setDemoRetryKey] = useState(0);
+  const [currentLocation, setCurrentLocation] = useState<DeliveryTrackingPoint | null>(null);
+  const [riderHeading, setRiderHeading] = useState<number | null>(null);
+  const [clock, setClock] = useState(Date.now());
+  const [routeError, setRouteError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
-    try {
-      const [orders, profileData] = await Promise.all([deliveryService.getAssignedOrders(), deliveryService.getProfile()]);
-      setProfile(profileData);
-      const profileLat = profileData.current_lat;
-      const profileLng = profileData.current_lng;
-      const active = orders.find((item) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(item.status));
-      if (!active?.delivery_id) { activeDeliveryId.current = null; setOrder(active || null); setDelivery(null); return; }
-      const nextDelivery = await deliveryService.getDelivery(active.delivery_id);
-      if (activeDeliveryId.current !== nextDelivery.id) {
-        activeDeliveryId.current = nextDelivery.id;
-        demoStartedDeliveryId.current = null;
-        demoProgress.current = 0;
-        setDemoState('waiting');
-        setCurrentCoords(typeof profileLat === 'number' && Number.isFinite(profileLat) && typeof profileLng === 'number' && Number.isFinite(profileLng)
-          ? { lat: profileLat, lng: profileLng }
-          : null);
-        lastRouteRequest.current = null;
-      }
-      setOrder(active); setDelivery(nextDelivery);
-    } catch (err: any) { setError(err.message || 'Unable to load current delivery.'); }
-    finally { setIsLoading(false); }
+  const acceptLocation = (candidate: DeliveryTrackingPoint) => {
+    const previous = latestLocation.current;
+    if (!isNewerTrackingPoint(previous, candidate)) return;
+    if (previous) {
+      const heading = bearingDegrees(
+        { lat: previous.latitude, lng: previous.longitude },
+        { lat: candidate.latitude, lng: candidate.longitude },
+      );
+      if (heading != null) setRiderHeading(heading);
+    }
+    latestLocation.current = candidate;
+    setCurrentLocation(candidate);
   };
 
-  useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 10000); return () => window.clearInterval(timer); }, []);
+  const load = async () => {
+    if (loadInFlight.current) return;
+    loadInFlight.current = true;
+    try {
+      const [orders, profileData] = await Promise.all([
+        deliveryService.getAssignedOrders(),
+        deliveryService.getProfile(),
+      ]);
+      const active = orders.find((item) => !['DELIVERED', 'CANCELLED', 'REJECTED'].includes(item.status));
+      if (!active?.delivery_id) {
+        activeDeliveryId.current = null;
+        setOrder(active || null);
+        setDelivery(null);
+        hasLoadedCurrentDelivery.current = true;
+        setError(null);
+        return;
+      }
+      const [nextDelivery, tracking] = await Promise.all([
+        deliveryService.getDelivery(active.delivery_id),
+        deliveryService.getTracking(active.delivery_id),
+      ]);
+      if (activeDeliveryId.current !== nextDelivery.id) {
+        activeDeliveryId.current = nextDelivery.id;
+        latestLocation.current = null;
+        lastRouteRequest.current = null;
+        setRoute(null);
+      }
+      if (tracking.updates.length > 0) {
+        const newest = tracking.updates.reduce((latest, point) => (
+          isNewerTrackingPoint(latest, point) ? point : latest
+        ));
+        acceptLocation(newest);
+      } else if (profileData.current_lat != null && profileData.current_lng != null) {
+        setCurrentLocation({
+          id: 0,
+          delivery_id: nextDelivery.id,
+          latitude: profileData.current_lat,
+          longitude: profileData.current_lng,
+          source: 'GPS',
+          recorded_at: new Date().toISOString(),
+        });
+      }
+      setOrder(active);
+      setDelivery(nextDelivery);
+      hasLoadedCurrentDelivery.current = true;
+      setError(null);
+    } catch (err: any) {
+      if (!hasLoadedCurrentDelivery.current) setError(err.message || 'Unable to load current delivery.');
+    } finally {
+      loadInFlight.current = false;
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
+    void load();
+    const refreshTimer = window.setInterval(() => void load(), 10000);
+    const clockTimer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.clearInterval(clockTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!delivery?.id || ['DELIVERED', 'CANCELLED'].includes(delivery.status)) return;
+    wsRef.current?.disconnect();
+    const client = new DeliveryWebSocketClient(delivery.id);
+    wsRef.current = client;
+    client.subscribe((event) => {
+      if (event.event === 'delivery_location_updated' || event.event === 'delivery_location_snapshot') {
+        acceptLocation({
+          id: event.data.sequence || 0,
+          delivery_id: delivery.id,
+          latitude: event.data.latitude,
+          longitude: event.data.longitude,
+          accuracy_m: event.data.accuracy_m,
+          source: event.data.source,
+          status: event.data.status,
+          recorded_at: event.data.recorded_at,
+          sequence: event.data.sequence,
+          delivery_partner_id: event.data.delivery_partner_id,
+        });
+      } else if (event.event === 'delivery_status_updated') {
+        setDelivery((current) => current ? { ...current, status: event.data.status as DeliveryStatus } : current);
+      }
+    });
+    client.connect();
+    return () => {
+      client.disconnect();
+      if (wsRef.current === client) wsRef.current = null;
+    };
+  }, [delivery?.id]);
+
+  const isRoutePlayback = currentLocation?.source === 'ROUTE_PLAYBACK';
   useEffect(() => {
     if (!delivery || ['DELIVERED', 'CANCELLED'].includes(delivery.status)) {
       routeController.current?.abort();
       setRoute(null);
       return;
     }
-    const origin = currentCoords ? { lat: currentCoords.lat, lng: currentCoords.lng } : undefined;
-    const requestSnapshot = { deliveryId: delivery.id, status: delivery.status, origin, requestedAt: Date.now() };
-    const freezeDemoRoute = currentCoords?.source === 'DEMO_SIMULATION' && Boolean(route?.geometry?.coordinates?.length);
-    if (!shouldRefreshRoute(lastRouteRequest.current, requestSnapshot, freezeDemoRoute)) return;
+    const canonicalCustomerRoute = isRoutePlayback && delivery.status === 'OUT_FOR_DELIVERY';
+    const origin = canonicalCustomerRoute
+      ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng }
+      : currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : undefined;
+    const requestSnapshot: RouteRefreshSnapshot = {
+      deliveryId: delivery.id,
+      status: delivery.status,
+      routeMode: canonicalCustomerRoute ? 'PLAYBACK_CANONICAL' : 'LIVE',
+      origin,
+      requestedAt: Date.now(),
+    };
+    const freezeRoute = isRoutePlayback && Boolean(route?.geometry?.coordinates?.length);
+    if (!shouldRefreshRoute(lastRouteRequest.current, requestSnapshot, freezeRoute)) return;
 
     routeController.current?.abort();
     const controller = new AbortController();
     routeController.current = controller;
     const requestId = ++routeRequestId.current;
     lastRouteRequest.current = requestSnapshot;
+    setRouteError(null);
     deliveryService.getRoute(delivery.id, origin, controller.signal)
       .then((response) => { if (requestId === routeRequestId.current) setRoute(response); })
-      .catch((routeError) => {
-        if (routeError?.status !== 408 && routeError?.name !== 'AbortError' && requestId === routeRequestId.current) setRoute(null);
+      .catch((routeRequestError) => {
+        if (routeRequestError?.name !== 'AbortError' && requestId === routeRequestId.current) {
+          setRoute(null);
+          setRouteError('Road route is temporarily unavailable.');
+        }
       });
-  }, [currentCoords?.lat, currentCoords?.lng, delivery?.id, delivery?.status]);
+  }, [currentLocation?.latitude, currentLocation?.longitude, isRoutePlayback, delivery?.id, delivery?.status]);
 
-  useEffect(() => () => routeController.current?.abort(), []);
-
-  const demoRouteReady = Boolean(route?.geometry?.coordinates?.length && route.geometry.coordinates.length > 1);
-  useEffect(() => {
-    if (!demoPlaybackEnabled || !delivery || delivery.status !== 'OUT_FOR_DELIVERY' || !demoRouteReady) return;
-    if (demoStartedDeliveryId.current === delivery.id) return;
-    demoStartedDeliveryId.current = delivery.id;
-    const geometry = route?.geometry;
-    if (!geometry) return;
-    let cancelled = false;
-    let timer: number | null = null;
-    const startedAt = Date.now() - demoProgress.current * demoDurationMs;
-    let consecutiveFailures = 0;
-    setDemoState('playing');
-
-    const sendNextPoint = async () => {
-      if (cancelled) return;
-      const progress = Math.min(1, (Date.now() - startedAt) / demoDurationMs);
-      const point = sampleRouteAtProgress(geometry, progress);
-      if (!point) {
-        setDemoState('error');
-        return;
-      }
-      try {
-        const accepted = await deliveryService.updateLocation(
-          delivery.id,
-          point.lat,
-          point.lng,
-          undefined,
-          new Date().toISOString(),
-          'DEMO_SIMULATION',
-        );
-        if (cancelled) return;
-        if (!Number.isFinite(accepted.latitude) || !Number.isFinite(accepted.longitude)) {
-          throw new Error('Tracking response did not include valid coordinates');
-        }
-        consecutiveFailures = 0;
-        demoProgress.current = progress;
-        setCurrentCoords({
-          lat: accepted.latitude,
-          lng: accepted.longitude,
-          recordedAt: accepted.recorded_at,
-          source: 'DEMO_SIMULATION',
-        });
-        if (progress >= 1) {
-          demoProgress.current = 1;
-          setDemoState('arrived');
-          return;
-        }
-        timer = window.setTimeout(() => void sendNextPoint(), 1500);
-      } catch {
-        if (cancelled) return;
-        consecutiveFailures += 1;
-        if (consecutiveFailures <= 3) {
-          timer = window.setTimeout(() => void sendNextPoint(), consecutiveFailures * 1500);
-        } else {
-          demoStartedDeliveryId.current = null;
-          setDemoState('error');
-        }
-      }
-    };
-    void sendNextPoint();
-    return () => {
-      cancelled = true;
-      if (timer != null) window.clearTimeout(timer);
-    };
-  }, [delivery?.id, delivery?.status, demoRouteReady, demoRetryKey]);
-
-  const retryDemoPlayback = () => {
-    demoStartedDeliveryId.current = null;
-    demoProgress.current = 0;
-    setDemoState('waiting');
-    setDemoRetryKey((value) => value + 1);
-  };
+  useEffect(() => () => {
+    routeController.current?.abort();
+    wsRef.current?.disconnect();
+  }, []);
 
   const updateStatus = async (status: DeliveryStatus) => {
     if (!delivery || mutation.current) return;
     mutation.current = true;
-    setIsUpdating(true); setError(null);
-    try { setDelivery(await deliveryService.updateDeliveryStatus(delivery.id, status)); if (status === 'DELIVERED') setCompletedId(order?.id || null); await load(); }
-    catch (err: any) { setError(err.message || 'Unable to update delivery status.'); }
-    finally { mutation.current = false; setIsUpdating(false); }
+    setIsUpdating(true);
+    setError(null);
+    try {
+      let updated = await deliveryService.updateDeliveryStatus(delivery.id, status);
+      if (status === 'PICKED_UP' && updated.status === 'PICKED_UP') {
+        updated = await deliveryService.updateDeliveryStatus(delivery.id, 'OUT_FOR_DELIVERY');
+      }
+      routeController.current?.abort();
+      setRoute(null);
+      lastRouteRequest.current = null;
+      setDelivery(updated);
+      if (status === 'DELIVERED') setCompletedId(order?.id || null);
+      await load();
+    } catch (err: any) {
+      setError(err.message || 'Unable to update delivery status.');
+    } finally {
+      mutation.current = false;
+      setIsUpdating(false);
+    }
   };
 
   const reject = async () => {
     if (!delivery || mutation.current) return;
-    mutation.current = true; setIsUpdating(true);
-    try { await deliveryService.rejectDelivery(delivery.id); await load(); }
-    catch { setError('Could not reject this request. Refresh and check its current status.'); }
-    finally { mutation.current = false; setIsUpdating(false); }
+    mutation.current = true;
+    setIsUpdating(true);
+    try {
+      await deliveryService.rejectDelivery(delivery.id);
+      await load();
+    } catch {
+      setError('Could not reject this request. Refresh and check its current status.');
+    } finally {
+      mutation.current = false;
+      setIsUpdating(false);
+    }
   };
 
   if (isLoading) return <Spinner size="lg" label="Loading current delivery..." />;
@@ -193,42 +251,76 @@ export const CurrentDeliveryPage: React.FC = () => {
     <p className="mt-2 text-sm text-slate-500">{completedId ? 'Delivery completion has been confirmed.' : 'Accept an available request to start a trip.'}</p>
     <Link to="/delivery/orders" className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-blue-700 px-5 text-sm font-bold text-white">View requests</Link>
   </div>;
-  const pickup = ['ASSIGNED', 'ACCEPTED'].includes(delivery.status);
-  const nextAction = delivery.status === 'ASSIGNED' ? { label: 'Accept delivery', status: 'ACCEPTED' as DeliveryStatus } : delivery.status === 'ACCEPTED' ? { label: 'Mark picked up', status: 'PICKED_UP' as DeliveryStatus } : delivery.status === 'PICKED_UP' ? { label: 'Start delivery', status: 'OUT_FOR_DELIVERY' as DeliveryStatus } : delivery.status === 'OUT_FOR_DELIVERY' ? { label: 'Mark delivered', status: 'DELIVERED' as DeliveryStatus } : null;
+
+  const pickupStage = ['ASSIGNED', 'ACCEPTED'].includes(delivery.status);
+  const routeProgress = isRoutePlayback && route?.geometry && currentLocation
+    ? routeProgressForCoordinate(route.geometry, {
+      lat: currentLocation.latitude,
+      lng: currentLocation.longitude,
+    }) ?? undefined
+    : undefined;
+  const distanceToTarget = currentLocation
+    ? distanceMeters(
+      { lat: currentLocation.latitude, lng: currentLocation.longitude },
+      pickupStage
+        ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng }
+        : { lat: delivery.destination_lat, lng: delivery.destination_lng },
+    )
+    : Number.POSITIVE_INFINITY;
+  const arrivedAtTarget = distanceToTarget <= 20;
+  const arrivalAgeSeconds = arrivedAtTarget && currentLocation
+    ? Math.max(0, Math.floor((clock - Date.parse(currentLocation.recorded_at)) / 1000))
+    : 0;
+  const pickupWaitRemaining = delivery.status === 'ACCEPTED'
+    ? Math.max(0, pickupDwellSeconds - arrivalAgeSeconds)
+    : 0;
+  const nextAction = delivery.status === 'ASSIGNED'
+    ? { label: 'Accept delivery', status: 'ACCEPTED' as DeliveryStatus }
+    : delivery.status === 'ACCEPTED'
+      ? { label: pickupWaitRemaining > 0 ? `Pickup verification · ${Math.floor(pickupWaitRemaining / 60)}:${String(pickupWaitRemaining % 60).padStart(2, '0')}` : 'Mark picked up', status: 'PICKED_UP' as DeliveryStatus }
+      : delivery.status === 'OUT_FOR_DELIVERY'
+        ? { label: 'Mark delivered', status: 'DELIVERED' as DeliveryStatus }
+        : null;
+  const nextActionDisabled = isUpdating
+    || (routePlaybackEnabled && delivery.status === 'ACCEPTED' && (!arrivedAtTarget || pickupWaitRemaining > 0))
+    || (routePlaybackEnabled && delivery.status === 'OUT_FOR_DELIVERY' && !arrivedAtTarget);
+  const tripState = delivery.status === 'ACCEPTED'
+    ? arrivedAtTarget
+      ? pickupWaitRemaining > 0 ? 'Waiting at pickup' : 'Pickup verified'
+      : 'Heading to pickup'
+    : delivery.status === 'OUT_FOR_DELIVERY'
+      ? arrivedAtTarget ? 'Arrived at customer' : 'On the way'
+      : delivery.status.replace(/_/g, ' ');
   const activeStep = statusIndex(delivery.status);
+
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><p className="text-xs font-bold text-blue-700">ACTIVE DELIVERY</p><h1 className="mt-1 text-2xl font-extrabold">Order #{order.id}</h1></div>
-      <span className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">{delivery.status.replace(/_/g, ' ')}</span>
+      <span className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700">{tripState}</span>
     </div>
     {error && <Alert variant="error">{error}</Alert>}
-    {demoPlaybackEnabled ? (
-      <Alert variant={demoState === 'error' ? 'error' : 'info'}>
-        {delivery.status !== 'OUT_FOR_DELIVERY'
-          ? 'Demo route playback will begin after Start delivery. Device GPS is not required in demo mode.'
-          : demoState === 'playing'
-            ? 'Demo route playback is active. The customer map receives the same simulated road-route points.'
-            : demoState === 'arrived'
-              ? 'Demo rider has reached the customer. Mark the delivery as delivered when ready.'
-              : demoState === 'error'
-                ? <span className="flex flex-wrap items-center gap-2">Demo route playback was interrupted. The last confirmed rider position is preserved.<button type="button" className="font-bold underline" onClick={retryDemoPlayback}>Resume demo route</button></span>
-                : 'Preparing demo route playback…'}
-      </Alert>
-    ) : (
-      <PartnerLocationTracker deliveryId={delivery.id} deliveryStatus={delivery.status} onLocationUpdated={(lat, lng, accuracyM, recordedAt, heading) => setCurrentCoords({ lat, lng, accuracyM, recordedAt, heading, source: 'GPS' })} />
+    {!routePlaybackEnabled && (
+      <PartnerLocationTracker deliveryId={delivery.id} deliveryStatus={delivery.status} onLocationUpdated={(lat, lng, accuracyM, recordedAt, heading) => {
+        setRiderHeading(heading ?? null);
+        setCurrentLocation({ id: 0, delivery_id: delivery.id, latitude: lat, longitude: lng, accuracy_m: accuracyM, recorded_at: recordedAt || new Date().toISOString(), source: 'GPS' });
+      }} />
     )}
+    {routeError && <Alert variant="error">{routeError}</Alert>}
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-4">
-          <h2 className="flex items-center gap-2 text-sm font-bold"><Navigation className="h-4 w-4 text-blue-600" />{pickup ? 'Pickup at store' : 'Deliver to customer'}</h2>
-          {route?.distance_km != null && <span className="text-xs text-slate-500">{route.distance_km.toFixed(1)} km · {Math.ceil(route.duration_minutes)} min route estimate</span>}
+          <h2 className="flex items-center gap-2 text-sm font-bold"><Navigation className="h-4 w-4 text-blue-600" />{pickupStage ? 'Route to pickup store' : 'Route to customer'}</h2>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1.5 font-bold text-emerald-700"><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />{tripState}</span>
+            {route?.distance_km != null && <span>{route.distance_km.toFixed(1)} km · {Math.ceil(route.duration_minutes)} min route estimate</span>}
+          </div>
         </div>
-        <DeliveryMap pickupLat={delivery.pickup_lat} pickupLng={delivery.pickup_lng} pickupLabel={delivery.pickup_address || 'Pickup store'} destinationLat={delivery.destination_lat} destinationLng={delivery.destination_lng} destinationLabel={delivery.destination_address} currentLat={currentCoords?.lat} currentLng={currentCoords?.lng} currentAccuracyM={currentCoords?.accuracyM} currentHeading={currentCoords?.heading} currentSource={currentCoords?.source} routeGeometry={route?.geometry} height="clamp(320px, 55dvh, 620px)" />
+        <DeliveryMap pickupLat={delivery.pickup_lat} pickupLng={delivery.pickup_lng} pickupLabel={delivery.pickup_address || 'Pickup store'} destinationLat={delivery.destination_lat} destinationLng={delivery.destination_lng} destinationLabel={delivery.destination_address} currentLat={currentLocation?.latitude} currentLng={currentLocation?.longitude} currentAccuracyM={currentLocation?.accuracy_m} currentHeading={riderHeading} currentSource={currentLocation?.source} currentRouteProgress={routeProgress} animateCurrent={isRoutePlayback} journeyStage={pickupStage ? 'TO_PICKUP' : 'TO_CUSTOMER'} routeGeometry={route?.geometry} height="clamp(320px, 55dvh, 620px)" />
         <div className="space-y-3 border-t border-slate-200 p-4">
-          <p className="flex items-start gap-2 text-sm"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />{pickup ? delivery.pickup_address || order.store_name || 'Pickup store' : order.delivery_address}</p>
+          <p className="flex items-start gap-2 text-sm"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />{pickupStage ? delivery.pickup_address || order.store_name || 'Pickup store' : order.delivery_address}</p>
           <div className="flex flex-wrap gap-2">
             {delivery.status === 'ASSIGNED' && <Button variant="outline" disabled={isUpdating} onClick={() => void reject()}>Reject request</Button>}
-            {nextAction && <Button className="flex-1 bg-blue-700 hover:bg-blue-800" isLoading={isUpdating} onClick={() => void updateStatus(nextAction.status)} rightIcon={<ArrowRight className="h-4 w-4" />}>{nextAction.label}</Button>}
+            {nextAction && <Button className="flex-1 bg-blue-700 hover:bg-blue-800" disabled={nextActionDisabled} isLoading={isUpdating} onClick={() => void updateStatus(nextAction.status)} rightIcon={<ArrowRight className="h-4 w-4" />}>{nextAction.label}</Button>}
           </div>
         </div>
       </section>

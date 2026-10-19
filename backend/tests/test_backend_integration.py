@@ -1,5 +1,8 @@
 import math
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -7,8 +10,14 @@ from fastapi import HTTPException
 from starlette.websockets import WebSocketDisconnect
 
 from app.models.delivery_partner import DeliveryPartner
+from app.models.delivery import Delivery, DeliveryStatus, DeliveryTracking
+from app.models.order import Order, OrderStatus, RetailerOrderOffer
+from app.models.retailer import Retailer
+from app.services.delivery_service import assign_delivery_partner, update_delivery_status
 from app.services.geo_service import calculate_distance_km
+from app.services.order_service import accept_retailer_offer
 from app.services.routing_service import get_route
+from app.core.config import settings
 
 
 def auth_headers(client, email, role, name, **extra):
@@ -64,6 +73,221 @@ def create_ready_order(client, customer_headers, retailer_headers, product_id, q
         )
         assert response.status_code == 200
     return order_id
+
+
+def test_zero_distance_delivery_can_complete_without_fake_movement():
+    db = MagicMock()
+    delivery = SimpleNamespace(
+        id=91,
+        status=DeliveryStatus.OUT_FOR_DELIVERY,
+        pickup_lat=23.0276,
+        pickup_lng=72.5076,
+        destination_lat=23.0276,
+        destination_lng=72.5076,
+        delivery_partner=None,
+        order=SimpleNamespace(status=OrderStatus.OUT_FOR_DELIVERY),
+        delivered_at=None,
+    )
+
+    result = update_delivery_status(db, delivery, DeliveryStatus.DELIVERED)
+
+    assert result.status == DeliveryStatus.DELIVERED
+    assert result.order.status == OrderStatus.DELIVERED
+    assert result.delivered_at is not None
+    db.query.assert_not_called()
+
+
+def test_route_playback_requires_arrival_and_two_minute_pickup_dwell(monkeypatch):
+    monkeypatch.setattr(settings, "ENABLE_ROUTE_PLAYBACK", True)
+    monkeypatch.setattr(settings, "PICKUP_DWELL_SECONDS", 120)
+    db = MagicMock()
+    partner = SimpleNamespace(current_lat=23.0276, current_lng=72.5076, user=SimpleNamespace(email="rider@example.com"))
+    delivery = SimpleNamespace(
+        id=92,
+        status=DeliveryStatus.ACCEPTED,
+        pickup_lat=23.0276,
+        pickup_lng=72.5076,
+        destination_lat=23.0159,
+        destination_lng=72.5108,
+        delivery_partner=partner,
+        order=SimpleNamespace(status=OrderStatus.READY_FOR_PICKUP),
+        picked_up_at=None,
+    )
+    pickup_point = SimpleNamespace(
+        lat=delivery.pickup_lat,
+        lng=delivery.pickup_lng,
+        recorded_at=datetime.utcnow() - timedelta(seconds=60),
+    )
+    db.query.return_value.filter.return_value.order_by.return_value.first.return_value = pickup_point
+
+    with pytest.raises(HTTPException) as waiting:
+        update_delivery_status(db, delivery, DeliveryStatus.PICKED_UP)
+    assert waiting.value.status_code == 409
+    assert "available in" in waiting.value.detail
+
+    pickup_point.recorded_at = datetime.utcnow() - timedelta(seconds=121)
+    updated = update_delivery_status(db, delivery, DeliveryStatus.PICKED_UP)
+    assert updated.status == DeliveryStatus.PICKED_UP
+    assert updated.picked_up_at is not None
+
+
+def test_pickup_confirmation_starts_customer_route_atomically(
+    client,
+    db_session,
+    customer_headers,
+    retailer_headers,
+    seeded_product,
+    monkeypatch,
+):
+    partner_headers = auth_headers(
+        client,
+        "automatic-route-rider@example.com",
+        "delivery_partner",
+        "Automatic Route Rider",
+        lat=28.6151,
+        lng=77.2101,
+    )
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    assignment = client.post(f"/api/deliveries/{order_id}/assign", headers=retailer_headers)
+    delivery_id = assignment.json()["delivery"]["id"]
+    accepted = client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "ACCEPTED"},
+        headers=partner_headers,
+    )
+    assert accepted.status_code == 200
+
+    delivery = db_session.query(Delivery).filter(Delivery.id == delivery_id).one()
+    db_session.add(
+        DeliveryTracking(
+            delivery_id=delivery_id,
+            lat=delivery.pickup_lat,
+            lng=delivery.pickup_lng,
+            accuracy_m=5,
+            source="ROUTE_PLAYBACK",
+            status=DeliveryStatus.ACCEPTED,
+            recorded_at=datetime.utcnow() - timedelta(seconds=121),
+        )
+    )
+    db_session.commit()
+
+    start_route = AsyncMock()
+    monkeypatch.setattr(settings, "ENABLE_ROUTE_PLAYBACK", True)
+    monkeypatch.setattr("app.api.v1.endpoints.deliveries.route_playback_manager.start", start_route)
+    response = client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "PICKED_UP"},
+        headers=partner_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "OUT_FOR_DELIVERY"
+    assert client.get(f"/api/orders/{order_id}", headers=customer_headers).json()["status"] == "OUT_FOR_DELIVERY"
+    start_route.assert_awaited_once_with(delivery_id)
+
+
+def test_postgres_row_locks_allow_only_one_retailer_and_one_rider(
+    client,
+    customer_headers,
+    retailer_headers,
+    seeded_product,
+    test_session_factory,
+    test_database_dialect,
+):
+    if test_database_dialect != "postgresql":
+        pytest.skip("PostgreSQL row-lock verification requires TEST_POSTGRES_URL")
+
+    second_retailer_headers = auth_headers(
+        client,
+        "concurrent-retailer@example.com",
+        "retailer",
+        "Concurrent Retailer",
+        phone="9000000101",
+        store_name="Concurrent Store",
+        lat=28.6152,
+        lng=77.2102,
+    )
+    create_product(client, second_retailer_headers, name=seeded_product["name"], stock=25)
+    third_retailer_headers = auth_headers(
+        client,
+        "concurrent-retailer-three@example.com",
+        "retailer",
+        "Concurrent Retailer Three",
+        phone="9000000102",
+        store_name="Concurrent Store Three",
+        lat=28.6148,
+        lng=77.2088,
+    )
+    create_product(client, third_retailer_headers, name=seeded_product["name"], stock=25)
+    order_response = client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": seeded_product["id"], "quantity": 2}],
+            "delivery_address": "Concurrent Customer",
+            "delivery_lat": 28.6139,
+            "delivery_lng": 77.2090,
+        },
+        headers=customer_headers,
+    )
+    assert order_response.status_code == 201
+    order_id = order_response.json()["id"]
+
+    with test_session_factory() as db:
+        offers = db.query(RetailerOrderOffer).filter(RetailerOrderOffer.order_id == order_id).all()
+        contenders = [(offer.store_id, offer.store.retailer.user_id) for offer in offers]
+    assert len(contenders) == 3
+
+    def accept_offer(contender):
+        store_id, user_id = contender
+        with test_session_factory() as db:
+            try:
+                return accept_retailer_offer(db, order_id, store_id, user_id).store_id
+            except HTTPException as exc:
+                return exc.status_code
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        retailer_results = list(pool.map(accept_offer, contenders))
+    assert sum(result in {store_id for store_id, _ in contenders} for result in retailer_results) == 1
+    assert retailer_results.count(409) == 2
+
+    winner_store_id = next(result for result in retailer_results if result != 409)
+    retailer_headers_by_email = {
+        "retailer@example.com": retailer_headers,
+        "concurrent-retailer@example.com": second_retailer_headers,
+        "concurrent-retailer-three@example.com": third_retailer_headers,
+    }
+    with test_session_factory() as db:
+        winner = db.query(Retailer).filter(Retailer.store.has(id=winner_store_id)).one()
+        winner_retailer_headers = retailer_headers_by_email[winner.user.email]
+    for next_status in ("PREPARING", "READY_FOR_PICKUP"):
+        response = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": next_status},
+            headers=winner_retailer_headers,
+        )
+        assert response.status_code == 200
+
+    partner_headers = [
+        auth_headers(client, f"concurrent-rider-{index}@example.com", "delivery_partner", f"Rider {index}", phone=f"900000020{index}", lat=28.615, lng=77.21)
+        for index in (1, 2, 3)
+    ]
+    with test_session_factory() as db:
+        partner_ids = [
+            db.query(DeliveryPartner).filter(DeliveryPartner.user.has(email=f"concurrent-rider-{index}@example.com")).one().id
+            for index in (1, 2, 3)
+        ]
+
+    def claim_delivery(partner_id):
+        with test_session_factory() as db:
+            result = assign_delivery_partner(db, order_id, partner_id)
+            return result.assigned, result.delivery.delivery_partner_id if result.delivery else None
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        rider_results = list(pool.map(claim_delivery, partner_ids))
+    assert sum(assigned for assigned, _ in rider_results) == 1
+    with test_session_factory() as db:
+        persisted = db.query(Order).filter(Order.id == order_id).one()
+        assert persisted.delivery.delivery_partner_id in partner_ids
 
 
 def test_retailer_inventory_manual_confirmation_is_store_scoped_and_merges_exact_duplicates(client, retailer_headers):
@@ -133,10 +357,169 @@ def test_inventory_image_analysis_returns_review_drafts_without_writing_stock(cl
     assert client.get("/api/retailers/me/products", headers=retailer_headers).json() == []
 
 
+def test_product_photo_analysis_is_read_only_and_returns_catalog_match(client, retailer_headers, seeded_product, monkeypatch):
+    from app.schemas.inventory import ExtractedInventoryItem
+    from app.services.ocr_service import OCRTextLine
+
+    def fake_photo_analysis(self, content, filename, content_type):
+        return (
+            [
+                ExtractedInventoryItem(
+                    product_name=seeded_product["name"],
+                    quantity=None,
+                    unit="unit",
+                    price=None,
+                    category="Groceries",
+                    needs_review=True,
+                    warnings=["Quantity requires retailer review."],
+                )
+            ],
+            [OCRTextLine(text=seeded_product["name"], confidence=None, bounding_box=[], page_index=0, order=0)],
+        )
+
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.inventory.InventoryImageAnalyzer.analyze_product_photo",
+        fake_photo_analysis,
+    )
+    before = client.get("/api/retailers/me/products", headers=retailer_headers).json()[0]["quantity"]
+    response = client.post(
+        "/api/retailer/inventory/analyze-product-photo",
+        files={"file": ("product.jpg", b"image", "image/jpeg")},
+        headers=retailer_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis_mode"] == "PRODUCT_PHOTO"
+    assert body["items"][0]["possible_existing_product_id"] == seeded_product["id"]
+    assert body["items"][0]["catalog_matches"][0]["current_stock"] == before
+    assert body["items"][0]["needs_review"] is True
+    after = client.get("/api/retailers/me/products", headers=retailer_headers).json()[0]["quantity"]
+    assert after == before
+
+
+def test_product_photo_catalog_matching_keeps_pack_sizes_distinct(client, retailer_headers, monkeypatch):
+    product_70 = create_product(client, retailer_headers, name="Maggi 70g", stock=8)
+    create_product(client, retailer_headers, name="Maggi 140g", stock=6)
+    from app.schemas.inventory import ExtractedInventoryItem
+
+    monkeypatch.setattr(
+        "app.api.v1.endpoints.inventory.InventoryImageAnalyzer.analyze_product_photo",
+        lambda self, content, filename, content_type: (
+            [ExtractedInventoryItem(product_name="Maggi", size="70g", needs_review=True)],
+            [],
+        ),
+    )
+    response = client.post(
+        "/api/retailer/inventory/analyze-product-photo",
+        files={"file": ("maggi.jpg", b"image", "image/jpeg")},
+        headers=retailer_headers,
+    )
+    assert response.status_code == 200
+    matches = response.json()["items"][0]["catalog_matches"]
+    assert [match["product_id"] for match in matches] == [product_70["id"]]
+
+
+def test_product_photo_rejects_pdf_and_non_retailer(client, retailer_headers, customer_headers):
+    unsupported = client.post(
+        "/api/retailer/inventory/analyze-product-photo",
+        files={"file": ("catalog.pdf", b"%PDF", "application/pdf")},
+        headers=retailer_headers,
+    )
+    assert unsupported.status_code == 415
+    forbidden = client.post(
+        "/api/retailer/inventory/analyze-product-photo",
+        files={"file": ("product.jpg", b"image", "image/jpeg")},
+        headers=customer_headers,
+    )
+    assert forbidden.status_code == 403
+
+
+def test_stock_adjustment_add_reduce_is_idempotent_and_audited(client, retailer_headers, seeded_product):
+    add_payload = {
+        "product_id": seeded_product["id"],
+        "direction": "ADD",
+        "quantity": 5,
+        "reason": "NEW_STOCK_RECEIVED",
+        "source": "PRODUCT_PHOTO",
+        "confirmation_id": "stock-add-0001",
+    }
+    added = client.post("/api/retailer/inventory/adjust", json=add_payload, headers=retailer_headers)
+    assert added.status_code == 200
+    assert added.json()["quantity_before"] == 25
+    assert added.json()["quantity_after"] == 30
+
+    duplicate = client.post("/api/retailer/inventory/adjust", json=add_payload, headers=retailer_headers)
+    assert duplicate.status_code == 200
+    assert duplicate.json() == added.json()
+
+    reduced = client.post(
+        "/api/retailer/inventory/adjust",
+        json={
+            "product_id": seeded_product["id"],
+            "direction": "REDUCE",
+            "quantity": 3,
+            "reason": "OFFLINE_SALE",
+            "source": "MANUAL_ADJUSTMENT",
+            "confirmation_id": "stock-reduce-0001",
+        },
+        headers=retailer_headers,
+    )
+    assert reduced.status_code == 200
+    assert reduced.json()["quantity_after"] == 27
+    history = client.get("/api/retailer/inventory/history", headers=retailer_headers).json()
+    assert [row["delta"] for row in history] == [-3, 5, 25]
+    assert all(row["actor_user_id"] is not None for row in history)
+
+
+def test_stock_adjustment_prevents_negative_stock_and_cross_store_access(client, retailer_headers, seeded_product):
+    insufficient = client.post(
+        "/api/retailer/inventory/adjust",
+        json={
+            "product_id": seeded_product["id"],
+            "direction": "REDUCE",
+            "quantity": 26,
+            "reason": "DAMAGED_PRODUCT",
+            "confirmation_id": "stock-reduce-too-large",
+        },
+        headers=retailer_headers,
+    )
+    assert insufficient.status_code == 409
+    assert client.get("/api/retailers/me/products", headers=retailer_headers).json()[0]["quantity"] == 25
+    history = client.get("/api/retailer/inventory/history", headers=retailer_headers).json()
+    assert [(row["delta"], row["source"]) for row in history] == [(25, "PRODUCT_CREATE")]
+
+    other_retailer = auth_headers(
+        client,
+        "other-retailer@example.com",
+        "retailer",
+        "Other Retailer",
+        store_name="Other Store",
+        lat=28.62,
+        lng=77.22,
+    )
+    cross_store = client.post(
+        "/api/retailer/inventory/adjust",
+        json={
+            "product_id": seeded_product["id"],
+            "direction": "ADD",
+            "quantity": 1,
+            "reason": "MANUAL_CORRECTION",
+            "confirmation_id": "cross-store-adjustment",
+        },
+        headers=other_retailer,
+    )
+    assert cross_store.status_code == 404
+
+
 def test_rider_claim_is_locked_and_rejected_delivery_returns_to_the_pool(client, customer_headers, retailer_headers, seeded_product):
     first_rider = auth_headers(client, "first-rider@example.com", "delivery_partner", "First Rider", lat=28.6151, lng=77.2101)
     second_rider = auth_headers(client, "second-rider@example.com", "delivery_partner", "Second Rider", lat=28.6152, lng=77.2102)
     order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    first_pool = client.get("/api/deliveries/available-orders", headers=first_rider)
+    second_pool = client.get("/api/deliveries/available-orders", headers=second_rider)
+    assert first_pool.json()[0]["eligible_rider_pool_size"] == 2
+    assert second_pool.json()[0]["eligible_rider_pool_size"] == 2
 
     first_claim = client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=first_rider)
     assert first_claim.status_code == 200
@@ -147,6 +530,70 @@ def test_rider_claim_is_locked_and_rejected_delivery_returns_to_the_pool(client,
     assert rejected.status_code == 200
     assert rejected.json()["delivery_partner_id"] is None
     assert client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=second_rider).status_code == 200
+
+
+def test_rider_can_decline_offer_without_claiming_or_cancelling_order(client, customer_headers, retailer_headers, seeded_product):
+    first_rider = auth_headers(client, "declining-rider@example.com", "delivery_partner", "Declining Rider", lat=28.6151, lng=77.2101)
+    second_rider = auth_headers(client, "claiming-rider@example.com", "delivery_partner", "Claiming Rider", lat=28.6152, lng=77.2102)
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+    stock_before_decline = client.get("/api/retailers/me/products", headers=retailer_headers).json()[0]["quantity"]
+
+    declined = client.post(
+        f"/api/deliveries/available-orders/{order_id}/decline",
+        json={"reason": "Route unavailable"},
+        headers=first_rider,
+    )
+    assert declined.status_code == 200
+    assert declined.json()["available_to_other_riders"] is True
+    assert client.get(f"/api/orders/{order_id}", headers=customer_headers).json()["status"] == "READY_FOR_PICKUP"
+    assert client.get("/api/deliveries/available-orders", headers=first_rider).json() == []
+    assert client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=first_rider).status_code == 409
+
+    available_to_second = client.get("/api/deliveries/available-orders", headers=second_rider)
+    assert [order["id"] for order in available_to_second.json()] == [order_id]
+    claimed = client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=second_rider)
+    assert claimed.status_code == 200
+    assert claimed.json()["delivery"]["delivery_partner_id"] is not None
+    assert client.get("/api/retailers/me/products", headers=retailer_headers).json()[0]["quantity"] == stock_before_decline
+
+
+def test_rider_outside_offer_radius_cannot_list_or_claim_order(
+    client, customer_headers, retailer_headers, seeded_product,
+):
+    far_rider = auth_headers(
+        client,
+        "far-pool-rider@example.com",
+        "delivery_partner",
+        "Far Pool Rider",
+        lat=28.7139,
+        lng=77.2090,
+    )
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+
+    assert client.get("/api/deliveries/available-orders", headers=far_rider).json() == []
+    claim = client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=far_rider)
+    assert claim.status_code == 409
+    assert "outside the 5 km" in claim.json()["detail"]
+
+
+def test_offer_decline_requires_rider_and_ready_unclaimed_order(client, customer_headers, retailer_headers, seeded_product):
+    rider = auth_headers(client, "offer-state-rider@example.com", "delivery_partner", "Offer Rider", lat=28.6151, lng=77.2101)
+    other_rider = auth_headers(client, "offer-state-other@example.com", "delivery_partner", "Other Rider", lat=28.6152, lng=77.2102)
+    order_id = create_ready_order(client, customer_headers, retailer_headers, seeded_product["id"])
+
+    unauthorized = client.post(
+        f"/api/deliveries/available-orders/{order_id}/decline",
+        json={"reason": "No"},
+        headers=customer_headers,
+    )
+    assert unauthorized.status_code == 403
+    assert client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=other_rider).status_code == 200
+    too_late = client.post(
+        f"/api/deliveries/available-orders/{order_id}/decline",
+        json={"reason": "Already assigned"},
+        headers=rider,
+    )
+    assert too_late.status_code == 409
 
 
 def test_frozen_inventory_is_only_offered_to_capable_riders(client, customer_headers, retailer_headers):
@@ -323,7 +770,7 @@ def test_order_creation_requires_location_when_no_request_or_saved_coordinates(c
     assert response.status_code == 400
 
 
-def test_order_creation_uses_matching_and_decrements_inventory(client, customer_headers, retailer_headers, seeded_product):
+def test_order_creation_broadcasts_then_winner_decrements_inventory(client, customer_headers, retailer_headers, seeded_product):
     response = client.post(
         "/api/orders",
         json={
@@ -335,10 +782,203 @@ def test_order_creation_uses_matching_and_decrements_inventory(client, customer_
         headers=customer_headers,
     )
     assert response.status_code == 201
-    assert response.json()["store_id"] == seeded_product["store_id"]
+    assert response.json()["store_id"] is None
 
     product_response = client.get(f"/api/products/{seeded_product['id']}")
+    assert product_response.json()["quantity"] == 25
+
+    accepted = client.post(
+        f"/api/orders/{response.json()['id']}/retailer-accept",
+        headers=retailer_headers,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["store_id"] == seeded_product["store_id"]
+    product_response = client.get(f"/api/products/{seeded_product['id']}")
     assert product_response.json()["quantity"] == 22
+
+
+def test_multi_retailer_offer_first_acceptance_wins_and_only_winner_stock_changes(
+    client, customer_headers, retailer_headers, seeded_product,
+):
+    second_headers = auth_headers(
+        client,
+        "second-retailer@example.com",
+        "retailer",
+        "Second Retailer",
+        store_name="Second Store",
+        lat=28.6155,
+        lng=77.2105,
+    )
+    second_product = create_product(client, second_headers, name=seeded_product["name"], stock=12)
+    created = client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": seeded_product["id"], "quantity": 3}],
+            "delivery_address": "Broadcast Address",
+            "delivery_lat": 28.6139,
+            "delivery_lng": 77.2090,
+        },
+        headers=customer_headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["retailer_pool_size"] == 2
+    order_id = created.json()["id"]
+    assert order_id in {order["id"] for order in client.get("/api/orders", headers=retailer_headers).json()}
+    assert order_id in {order["id"] for order in client.get("/api/orders", headers=second_headers).json()}
+    assert client.get(f"/api/products/{seeded_product['id']}").json()["quantity"] == 25
+    assert client.get(f"/api/products/{second_product['id']}").json()["quantity"] == 12
+
+    winner = client.post(f"/api/orders/{order_id}/retailer-accept", headers=second_headers)
+    assert winner.status_code == 200
+    assert winner.json()["store_id"] == second_product["store_id"]
+    loser = client.post(f"/api/orders/{order_id}/retailer-accept", headers=retailer_headers)
+    assert loser.status_code == 409
+    assert client.get(f"/api/products/{seeded_product['id']}").json()["quantity"] == 25
+    assert client.get(f"/api/products/{second_product['id']}").json()["quantity"] == 9
+    assert order_id not in {order["id"] for order in client.get("/api/orders", headers=retailer_headers).json()}
+
+
+def test_all_retailers_reject_without_stock_mutation(client, customer_headers, retailer_headers, seeded_product):
+    second_headers = auth_headers(
+        client,
+        "rejecting-retailer@example.com",
+        "retailer",
+        "Rejecting Retailer",
+        store_name="Rejecting Store",
+        lat=28.6155,
+        lng=77.2105,
+    )
+    second_product = create_product(client, second_headers, name=seeded_product["name"], stock=8)
+    created = client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": seeded_product["id"], "quantity": 2}],
+            "delivery_address": "Rejected Address",
+            "delivery_lat": 28.6139,
+            "delivery_lng": 77.2090,
+        },
+        headers=customer_headers,
+    )
+    order_id = created.json()["id"]
+    assert client.post(f"/api/orders/{order_id}/retailer-reject", headers=retailer_headers).status_code == 200
+    final_reject = client.post(f"/api/orders/{order_id}/retailer-reject", headers=second_headers)
+    assert final_reject.status_code == 200
+    assert final_reject.json()["status"] == "REJECTED"
+    assert client.get(f"/api/products/{seeded_product['id']}").json()["quantity"] == 25
+    assert client.get(f"/api/products/{second_product['id']}").json()["quantity"] == 8
+
+
+def test_three_store_and_three_rider_pool_fanout_and_first_claim(
+    client, customer_headers, retailer_headers, seeded_product,
+):
+    retailer_b = auth_headers(
+        client,
+        "pool-retailer-b@example.com",
+        "retailer",
+        "Pool Retailer B",
+        store_name="Pool Store B",
+        lat=28.6148,
+        lng=77.2100,
+    )
+    retailer_c = auth_headers(
+        client,
+        "pool-retailer-c@example.com",
+        "retailer",
+        "Pool Retailer C",
+        store_name="Pool Store C",
+        lat=28.6155,
+        lng=77.2085,
+    )
+    product_b = create_product(client, retailer_b, name=seeded_product["name"], stock=15)
+    product_c = create_product(client, retailer_c, name=seeded_product["name"], stock=15)
+
+    created = client.post(
+        "/api/orders",
+        json={
+            "items": [{"product_id": seeded_product["id"], "quantity": 2}],
+            "delivery_address": "Three-way Pool Address",
+            "delivery_lat": 28.6139,
+            "delivery_lng": 77.2090,
+        },
+        headers=customer_headers,
+    )
+    assert created.status_code == 201
+    assert created.json()["retailer_pool_size"] == 3
+    order_id = created.json()["id"]
+    for headers in (retailer_headers, retailer_b, retailer_c):
+        listed = client.get("/api/orders", headers=headers)
+        assert order_id in {order["id"] for order in listed.json()}
+
+    declined_store = client.post(f"/api/orders/{order_id}/retailer-reject", headers=retailer_c)
+    assert declined_store.status_code == 200
+    assert declined_store.json()["status"] == "RECEIVED"
+    winner = client.post(f"/api/orders/{order_id}/retailer-accept", headers=retailer_b)
+    assert winner.status_code == 200
+    assert winner.json()["store_id"] == product_b["store_id"]
+    assert client.post(f"/api/orders/{order_id}/retailer-accept", headers=retailer_headers).status_code == 409
+    assert client.get(f"/api/orders/{order_id}", headers=retailer_headers).status_code == 403
+    losing_status_update = client.patch(
+        f"/api/orders/{order_id}/status",
+        json={"status": "PREPARING"},
+        headers=retailer_headers,
+    )
+    assert losing_status_update.status_code == 403
+    assert client.get(f"/api/products/{seeded_product['id']}").json()["quantity"] == 25
+    assert client.get(f"/api/products/{product_b['id']}").json()["quantity"] == 13
+    assert client.get(f"/api/products/{product_c['id']}").json()["quantity"] == 15
+
+    for target in ("PREPARING", "READY_FOR_PICKUP"):
+        updated = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": target},
+            headers=retailer_b,
+        )
+        assert updated.status_code == 200
+
+    riders = [
+        auth_headers(
+            client,
+            f"pool-rider-{index}@example.com",
+            "delivery_partner",
+            f"Pool Rider {index}",
+            lat=28.614 + index * 0.0002,
+            lng=77.209 + index * 0.0002,
+        )
+        for index in (1, 2, 3)
+    ]
+    for headers in riders:
+        available = client.get("/api/deliveries/available-orders", headers=headers)
+        assert [order["id"] for order in available.json()] == [order_id]
+        assert available.json()[0]["eligible_rider_pool_size"] == 3
+
+    declined_rider = client.post(
+        f"/api/deliveries/available-orders/{order_id}/decline",
+        json={"reason": "Testing rider-specific decline"},
+        headers=riders[2],
+    )
+    assert declined_rider.status_code == 200
+    assert client.get("/api/deliveries/available-orders", headers=riders[2]).json() == []
+    for headers in riders[:2]:
+        assert [order["id"] for order in client.get("/api/deliveries/available-orders", headers=headers).json()] == [order_id]
+
+    claim = client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=riders[0])
+    assert claim.status_code == 200
+    assert client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=riders[1]).status_code == 409
+
+
+def test_checkout_token_is_idempotent(client, customer_headers, seeded_product):
+    payload = {
+        "items": [{"product_id": seeded_product["id"], "quantity": 1}],
+        "delivery_address": "Idempotent Address",
+        "delivery_lat": 28.6139,
+        "delivery_lng": 77.2090,
+        "checkout_token": "checkout-token-0001",
+    }
+    first = client.post("/api/orders", json=payload, headers=customer_headers)
+    second = client.post("/api/orders", json=payload, headers=customer_headers)
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
 
 
 def test_order_creation_rejects_no_matching_store(client, customer_headers):
@@ -417,6 +1057,7 @@ def test_delivery_assignment_status_tracking_and_route(client, customer_headers,
     )
     assert picked_up.status_code == 200
     assert picked_up.json()["status"] == "PICKED_UP"
+    assert client.get(f"/api/orders/{order_id}", headers=customer_headers).json()["status"] == "READY_FOR_PICKUP"
 
     bad_location = client.post(
         f"/api/deliveries/{delivery_id}/location",
@@ -435,6 +1076,7 @@ def test_delivery_assignment_status_tracking_and_route(client, customer_headers,
     tracking = client.get(f"/api/deliveries/{delivery_id}/tracking", headers=near_partner_headers)
     assert tracking.status_code == 200
     assert len(tracking.json()["updates"]) >= 2
+    assert all(update["sequence"] is not None for update in tracking.json()["updates"])
 
     class MockResponse:
         def raise_for_status(self):
@@ -449,7 +1091,7 @@ def test_delivery_assignment_status_tracking_and_route(client, customer_headers,
     assert route.json()["distance_km"] == 4.2
     assert route.json()["duration_minutes"] == 12.5
     assert route.json()["pickup_lat"] == pytest.approx(28.616)
-    assert route.json()["destination_lat"] == pytest.approx(28.6139)
+    assert route.json()["destination_lat"] == pytest.approx(data["delivery"]["pickup_lat"])
 
     out_for_delivery = client.patch(
         f"/api/deliveries/{delivery_id}/status",
@@ -458,6 +1100,22 @@ def test_delivery_assignment_status_tracking_and_route(client, customer_headers,
     )
     assert out_for_delivery.status_code == 200
     assert out_for_delivery.json()["status"] == "OUT_FOR_DELIVERY"
+    assert client.get(f"/api/orders/{order_id}", headers=customer_headers).json()["status"] == "OUT_FOR_DELIVERY"
+
+    premature_delivery = client.patch(
+        f"/api/deliveries/{delivery_id}/status",
+        json={"status": "DELIVERED"},
+        headers=near_partner_headers,
+    )
+    assert premature_delivery.status_code == 409
+    assert "must reach the customer" in premature_delivery.json()["detail"]
+
+    arrived = client.post(
+        f"/api/deliveries/{delivery_id}/location",
+        json={"latitude": 28.6139, "longitude": 77.2090, "accuracy_m": 8},
+        headers=near_partner_headers,
+    )
+    assert arrived.status_code == 200
 
     delivered = client.patch(
         f"/api/deliveries/{delivery_id}/status",
@@ -594,6 +1252,14 @@ def test_route_target_follows_delivery_stage_and_osrm_uses_lng_lat_order(client,
         json={"status": "PICKED_UP"},
         headers=partner_headers,
     ).status_code == 200
+    still_at_pickup = client.get(f"/api/deliveries/{delivery['id']}/route", headers=partner_headers)
+    assert still_at_pickup.status_code == 200
+    assert still_at_pickup.json()["destination_lat"] == pytest.approx(delivery["pickup_lat"])
+    assert client.patch(
+        f"/api/deliveries/{delivery['id']}/status",
+        json={"status": "OUT_FOR_DELIVERY"},
+        headers=partner_headers,
+    ).status_code == 200
     captured_at = datetime.now(timezone.utc).isoformat()
     assert client.post(
         f"/api/deliveries/{delivery['id']}/location",
@@ -627,6 +1293,11 @@ def test_completed_delivery_rejects_late_location_updates(client, customer_heade
     assert client.patch(
         f"/api/deliveries/{delivery_id}/status",
         json={"status": "OUT_FOR_DELIVERY"},
+        headers=partner_headers,
+    ).status_code == 200
+    assert client.post(
+        f"/api/deliveries/{delivery_id}/location",
+        json={"latitude": 28.6139, "longitude": 77.2090, "accuracy_m": 8},
         headers=partner_headers,
     ).status_code == 200
     assert client.patch(
@@ -736,7 +1407,8 @@ def test_routing_service_error_handling(monkeypatch):
     assert coordinate_error.value.status_code == 400
 
 
-def test_websocket_auth_and_delivery_events(client, customer_headers, retailer_headers, seeded_product):
+def test_websocket_auth_and_delivery_events(client, customer_headers, retailer_headers, seeded_product, monkeypatch):
+    monkeypatch.setattr("app.api.v1.endpoints.deliveries.settings.ENABLE_DEMO_ROUTE_PLAYBACK", False)
     partner_headers = auth_headers(
         client,
         "socket-partner@example.com",
@@ -764,16 +1436,44 @@ def test_websocket_auth_and_delivery_events(client, customer_headers, retailer_h
         assert status_event["event"] == "delivery_status_updated"
         assert status_event["data"]["status"] == "PICKED_UP"
 
-        location_response = client.post(
+        disabled_demo_location = client.post(
             f"/api/deliveries/{delivery_id}/location",
             json={"latitude": 28.616, "longitude": 77.211, "source": "DEMO_SIMULATION"},
             headers=partner_headers,
         )
+        assert disabled_demo_location.status_code == 403
+
+        monkeypatch.setattr("app.api.v1.endpoints.deliveries.settings.ENABLE_DEMO_ROUTE_PLAYBACK", True)
+        demo_location = client.post(
+            f"/api/deliveries/{delivery_id}/location",
+            json={"latitude": 28.616, "longitude": 77.211, "source": "DEMO_SIMULATION"},
+            headers=partner_headers,
+        )
+        assert demo_location.status_code == 200
+        assert demo_location.json()["source"] == "DEMO_SIMULATION"
+        demo_event = websocket.receive_json()
+        assert demo_event["event"] == "delivery_location_updated"
+        assert demo_event["data"]["source"] == "DEMO_SIMULATION"
+
+        location_response = client.post(
+            f"/api/deliveries/{delivery_id}/location",
+            json={"latitude": 28.6139, "longitude": 77.2090, "source": "GPS"},
+            headers=partner_headers,
+        )
         assert location_response.status_code == 200
-        assert location_response.json()["source"] == "DEMO_SIMULATION"
+        assert location_response.json()["source"] == "GPS"
         location_event = websocket.receive_json()
         assert location_event["event"] == "delivery_location_updated"
-        assert location_event["data"]["source"] == "DEMO_SIMULATION"
+        assert location_event["data"]["source"] == "GPS"
+
+        customer_token = customer_headers["Authorization"].split(" ", 1)[1]
+        with client.websocket_connect(f"/api/ws/deliveries/{delivery_id}?token={customer_token}") as customer_socket:
+            snapshot = customer_socket.receive_json()
+            assert snapshot["event"] == "delivery_location_snapshot"
+            assert snapshot["data"]["latitude"] == pytest.approx(28.6139)
+            assert snapshot["data"]["longitude"] == pytest.approx(77.2090)
+            assert snapshot["data"]["source"] == "GPS"
+            assert snapshot["data"]["sequence"] > 0
 
         client.patch(
             f"/api/deliveries/{delivery_id}/status",
@@ -845,7 +1545,7 @@ def test_complete_backend_lifecycle(client, customer_headers, retailer_headers, 
         assert websocket.receive_json()["event"] == "delivery_status_updated"
         assert client.post(
             f"/api/deliveries/{delivery_id}/location",
-            json={"latitude": 28.616, "longitude": 77.211},
+            json={"latitude": 28.6139, "longitude": 77.2090},
             headers=partner_headers,
         ).status_code == 200
         assert websocket.receive_json()["event"] == "delivery_location_updated"

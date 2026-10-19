@@ -12,10 +12,13 @@ from app.models.inventory_adjustment import InventoryAdjustment
 from app.models.product import Product
 from app.models.store import Store
 from app.schemas.inventory import (
+    CatalogMatchCandidate,
     InventoryAdjustmentResponse,
     InventoryAnalysisResponse,
     InventoryConfirmRequest,
     InventoryConfirmResult,
+    InventoryStockAdjustmentRequest,
+    InventoryStockAdjustmentResult,
 )
 from app.services.inventory_image_analyzer import InventoryImageAnalyzer
 from app.services.product_service import get_store_for_retailer_user
@@ -23,6 +26,7 @@ from app.services.product_service import get_store_for_retailer_user
 
 router = APIRouter(prefix="/retailer/inventory", tags=["Retailer Inventory Onboarding"])
 ALLOWED_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 MAX_SIZE_BYTES = 5 * 1024 * 1024
 
 
@@ -50,6 +54,72 @@ def _find_exact_match(store_id: int, item, db: Session) -> Optional[Product]:
     return None
 
 
+def _find_catalog_matches(store_id: int, item, db: Session) -> list[CatalogMatchCandidate]:
+    candidate_name = _normalise(_catalog_name(item))
+    source_name = _normalise(item.product_name)
+    candidate_brand = _normalise(item.brand)
+    candidate_size = _normalise(getattr(item, "size", None)).replace(" ", "")
+    ranked: list[tuple[int, Product, str]] = []
+
+    products = db.query(Product).filter(Product.store_id == store_id, Product.is_active.is_(True)).all()
+    for product in products:
+        product_name = _normalise(product.name)
+        compact_product_name = product_name.replace(" ", "")
+        product_brand = _normalise(product.brand)
+        if candidate_brand and product_brand and candidate_brand != product_brand:
+            continue
+        if candidate_size and candidate_size not in compact_product_name:
+            continue
+
+        score = 0
+        reason = ""
+        if product_name == candidate_name:
+            score, reason = 100, "Exact reviewed name, brand, and pack-size match"
+        elif product_name == source_name:
+            score, reason = 95, "Exact visible product-name match"
+        else:
+            source_tokens = set(source_name.split())
+            product_tokens = set(product_name.split())
+            overlap = len(source_tokens & product_tokens) / max(1, len(source_tokens))
+            if overlap >= 0.75:
+                score, reason = int(overlap * 80), "Strong name-token match; retailer selection required"
+        if score:
+            ranked.append((score, product, reason))
+
+    matches: list[CatalogMatchCandidate] = []
+    for score, product, reason in sorted(ranked, key=lambda value: (-value[0], value[1].id))[:5]:
+        inventory = (
+            db.query(Inventory)
+            .filter(Inventory.store_id == store_id, Inventory.product_id == product.id)
+            .first()
+        )
+        matches.append(
+            CatalogMatchCandidate(
+                product_id=product.id,
+                name=product.name,
+                brand=product.brand,
+                unit=inventory.unit if inventory else "unit",
+                current_stock=inventory.quantity if inventory else 0,
+                price=product.price,
+                match_reason=reason,
+            )
+        )
+    return matches
+
+
+def _add_catalog_matches(store_id: int, items, db: Session) -> None:
+    for item in items:
+        matches = _find_catalog_matches(store_id, item, db)
+        item.catalog_matches = matches
+        exact_matches = [match for match in matches if match.match_reason.startswith("Exact reviewed")]
+        if len(exact_matches) == 1:
+            item.possible_existing_product_id = exact_matches[0].product_id
+        elif len(matches) > 1:
+            item.possible_existing_product_id = None
+            item.needs_review = True
+            item.warnings.append("Multiple catalogue products may match. Select the correct product and pack size.")
+
+
 @router.post("/analyze", response_model=InventoryAnalysisResponse, summary="Analyze a retailer inventory photo or bill")
 async def analyze_inventory_image(
     file: UploadFile = File(...),
@@ -71,15 +141,74 @@ async def analyze_inventory_image(
         file.filename or "inventory-upload",
         file.content_type,
     )
+    _add_catalog_matches(store.id, items, db)
     for item in items:
-        match = _find_exact_match(store.id, item, db)
-        if match:
-            item.possible_existing_product_id = match.id
-            item.warnings.append(f"Possible existing product found: {match.name}. Confirm before adding stock.")
+        if item.possible_existing_product_id:
+            match = next((value for value in item.catalog_matches if value.product_id == item.possible_existing_product_id), None)
+            if match:
+                item.warnings.append(f"Possible existing product found: {match.name}. Confirm before adding stock.")
     return InventoryAnalysisResponse(
         items=items,
         provider=analyzer.provider_name,
         raw_text_available=bool(ocr_lines),
+        ocr_lines=[
+            {
+                "text": line.text,
+                "confidence": line.confidence,
+                "bounding_box": line.bounding_box,
+                "page_index": line.page_index,
+                "order": line.order,
+            }
+            for line in ocr_lines
+        ],
+    )
+
+
+@router.post(
+    "/analyze-product-photo",
+    response_model=InventoryAnalysisResponse,
+    summary="Analyze product packaging without changing inventory",
+)
+async def analyze_product_photo(
+    file: UploadFile = File(...),
+    current_user: UserContext = Depends(require_role(["retailer"])),
+    db: Session = Depends(get_db),
+):
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Upload a JPG, JPEG, PNG, or WEBP product photo up to 5 MB.",
+        )
+    content = await file.read(MAX_SIZE_BYTES + 1)
+    if not content or len(content) > MAX_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="The product photo must be between 1 byte and 5 MB.",
+        )
+    store = get_store_for_retailer_user(db, current_user.user_id)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Retailer store not found")
+
+    analyzer = InventoryImageAnalyzer()
+    items, ocr_lines = await run_in_threadpool(
+        analyzer.analyze_product_photo,
+        content,
+        file.filename or "product-photo",
+        file.content_type,
+    )
+    _add_catalog_matches(store.id, items, db)
+    for item in items:
+        item.needs_review = True
+        if not item.catalog_matches:
+            item.warnings.append("No catalogue match was found. Use the authorized Add Product workflow first.")
+
+    return InventoryAnalysisResponse(
+        items=items,
+        provider=analyzer.provider_name,
+        raw_text_available=bool(ocr_lines),
+        document_type="SHELF_IMAGE",
+        analysis_mode="PRODUCT_PHOTO",
+        warnings=["Product photos never update stock automatically. Select a catalogue match and confirm an adjustment."],
         ocr_lines=[
             {
                 "text": line.text,
@@ -181,6 +310,8 @@ def _confirm_inventory(payload: InventoryConfirmRequest, current_user: UserConte
                 quantity_after=inventory.quantity,
                 source=payload.source,
                 batch_id=payload.confirmation_id,
+                actor_user_id=current_user.user_id,
+                note="NEW_STOCK_RECEIVED",
             ))
             results.append(InventoryConfirmResult(product_id=product.id, inventory_id=inventory.id, created=created, quantity_before=before, quantity_after=inventory.quantity))
         db.commit()
@@ -199,6 +330,109 @@ def confirm_inventory(payload: InventoryConfirmRequest, current_user: UserContex
 def add_inventory_manually(payload: InventoryConfirmRequest, current_user: UserContext = Depends(require_role(["retailer"])), db: Session = Depends(get_db)):
     payload.source = "MANUAL"
     return _confirm_inventory(payload, current_user, db)
+
+
+@router.post(
+    "/adjust",
+    response_model=InventoryStockAdjustmentResult,
+    summary="Confirm an explicit stock addition or reduction for an existing product",
+)
+def adjust_inventory_stock(
+    payload: InventoryStockAdjustmentRequest,
+    current_user: UserContext = Depends(require_role(["retailer"])),
+    db: Session = Depends(get_db),
+):
+    store = get_store_for_retailer_user(db, current_user.user_id)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Retailer store not found")
+
+    try:
+        store = db.query(Store).filter(Store.id == store.id).with_for_update().one()
+        previous = (
+            db.query(InventoryAdjustment)
+            .filter(
+                InventoryAdjustment.store_id == store.id,
+                InventoryAdjustment.batch_id == payload.confirmation_id,
+            )
+            .first()
+        )
+        if previous:
+            if previous.source not in {"PRODUCT_PHOTO", "MANUAL_ADJUSTMENT"}:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Confirmation key was already used for another inventory operation")
+            direction = "ADD" if previous.delta > 0 else "REDUCE"
+            return InventoryStockAdjustmentResult(
+                product_id=previous.product_id,
+                inventory_id=previous.inventory_id,
+                direction=direction,
+                quantity=abs(previous.delta),
+                reason=previous.note,
+                quantity_before=previous.quantity_after - previous.delta,
+                quantity_after=previous.quantity_after,
+                confirmation_id=payload.confirmation_id,
+            )
+
+        product = (
+            db.query(Product)
+            .filter(Product.id == payload.product_id, Product.store_id == store.id, Product.is_active.is_(True))
+            .with_for_update()
+            .first()
+        )
+        if not product:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Selected catalogue product was not found in your store")
+
+        inventory = (
+            db.query(Inventory)
+            .filter(Inventory.store_id == store.id, Inventory.product_id == product.id)
+            .with_for_update()
+            .first()
+        )
+        if inventory is None:
+            inventory = Inventory(store_id=store.id, product_id=product.id, quantity=0, is_available=False)
+            db.add(inventory)
+            db.flush()
+
+        before = inventory.quantity
+        delta = payload.quantity if payload.direction == "ADD" else -payload.quantity
+        after = before + delta
+        if after < 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot reduce {payload.quantity}; current stock is {before}",
+            )
+
+        inventory.quantity = after
+        if after == 0:
+            inventory.is_available = False
+        elif payload.direction == "ADD":
+            inventory.is_available = True
+
+        db.add(
+            InventoryAdjustment(
+                inventory_id=inventory.id,
+                store_id=store.id,
+                product_id=product.id,
+                delta=delta,
+                quantity_after=after,
+                source=payload.source,
+                batch_id=payload.confirmation_id,
+                actor_user_id=current_user.user_id,
+                note=payload.reason,
+            )
+        )
+        db.commit()
+        return InventoryStockAdjustmentResult(
+            product_id=product.id,
+            inventory_id=inventory.id,
+            direction=payload.direction,
+            quantity=payload.quantity,
+            reason=payload.reason,
+            quantity_before=before,
+            quantity_after=after,
+            confirmation_id=payload.confirmation_id,
+        )
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/history", response_model=list[InventoryAdjustmentResponse], summary="Get inventory adjustment history for own store")

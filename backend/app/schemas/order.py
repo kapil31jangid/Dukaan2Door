@@ -39,6 +39,7 @@ class OrderCreate(BaseModel):
     delivery_lat: Optional[float] = None
     delivery_lng: Optional[float] = None
     notes: Optional[str] = None
+    checkout_token: Optional[str] = Field(None, min_length=8, max_length=100)
 
 
 class OrderItemResponse(BaseModel):
@@ -56,7 +57,7 @@ class OrderItemResponse(BaseModel):
 class OrderResponse(BaseModel):
     id: int
     customer_id: int
-    store_id: int
+    store_id: Optional[int] = None
     store_name: Optional[str] = None
     store_address: Optional[str] = None
     store_lat: Optional[float] = None
@@ -75,6 +76,10 @@ class OrderResponse(BaseModel):
     created_at: str
     updated_at: str
     items: List[OrderItemResponse] = []
+    retailer_offer_status: Optional[str] = None
+    retailer_offer_expires_at: Optional[str] = None
+    retailer_pool_size: int = 0
+    eligible_rider_pool_size: Optional[int] = None
 
 
 class OrderStatusUpdate(BaseModel):

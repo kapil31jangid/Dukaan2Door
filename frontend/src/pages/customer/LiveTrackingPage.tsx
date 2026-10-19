@@ -10,7 +10,7 @@ import { DeliveryMap } from '../../components/maps/DeliveryMap';
 import { useCart } from '../../context/CartContext';
 import { Spinner } from '../../components/ui/Spinner';
 import { Alert } from '../../components/ui/Alert';
-import { bearingDegrees, isNewerTrackingPoint, RouteRefreshSnapshot, shouldRefreshRoute } from '../../utils/trackingGeometry';
+import { bearingDegrees, hasDepartedPickup, isNewerTrackingPoint, routeProgressForCoordinate, RouteRefreshSnapshot, shouldRefreshRoute } from '../../utils/trackingGeometry';
 
 export const LiveTrackingPage: React.FC = () => {
   const { id: orderIdStr } = useParams<{ id: string }>();
@@ -84,7 +84,7 @@ export const LiveTrackingPage: React.FC = () => {
         if (!active) return;
         setDelivery(deliveryData);
         if (trackingData.updates.length > 0) {
-          const newest = trackingData.updates.reduce((latest, point) => Date.parse(point.recorded_at) > Date.parse(latest.recorded_at) ? point : latest);
+          const newest = trackingData.updates.reduce((latest, point) => isNewerTrackingPoint(latest, point) ? point : latest);
           acceptLocation(newest);
         }
 
@@ -92,7 +92,7 @@ export const LiveTrackingPage: React.FC = () => {
           try {
             const latest = await customerService.getDeliveryTracking(deliveryId);
             if (latest.updates.length > 0) {
-              const newest = latest.updates.reduce((point, candidate) => Date.parse(candidate.recorded_at) > Date.parse(point.recorded_at) ? candidate : point);
+              const newest = latest.updates.reduce((point, candidate) => isNewerTrackingPoint(point, candidate) ? candidate : point);
               if (active) acceptLocation(newest);
             }
           } catch {
@@ -112,7 +112,7 @@ export const LiveTrackingPage: React.FC = () => {
           wsRef.current = new DeliveryWebSocketClient(deliveryId);
           
           wsRef.current.subscribe((evt) => {
-            if (evt.event === 'delivery_location_updated') {
+            if (evt.event === 'delivery_location_updated' || evt.event === 'delivery_location_snapshot') {
               acceptLocation({
                 id: 0,
                 delivery_id: deliveryId,
@@ -122,6 +122,8 @@ export const LiveTrackingPage: React.FC = () => {
                 source: evt.data.source,
                 recorded_at: evt.data.recorded_at,
                 status: evt.data.status,
+                sequence: evt.data.sequence,
+                delivery_partner_id: evt.data.delivery_partner_id,
               });
             } else if (evt.event === 'delivery_status_updated') {
               setDelivery(prev => prev ? { ...prev, status: evt.data.status as DeliveryStatus } : prev as Delivery | null);
@@ -171,10 +173,20 @@ export const LiveTrackingPage: React.FC = () => {
       setRouteGeometry(undefined);
       return;
     }
-    const origin = currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : undefined;
-    const requestSnapshot = { deliveryId: delivery.id, status: delivery.status, origin, requestedAt: Date.now() };
-    const freezeDemoRoute = currentLocation?.source === 'DEMO_SIMULATION' && Boolean(routeGeometry?.coordinates?.length);
-    if (!shouldRefreshRoute(lastRouteRequest.current, requestSnapshot, freezeDemoRoute)) return;
+    const followsPlannedRoute = currentLocation?.source === 'ROUTE_PLAYBACK' || currentLocation?.source === 'DEMO_SIMULATION';
+    const useCanonicalRoute = followsPlannedRoute && delivery.status === 'OUT_FOR_DELIVERY';
+    const origin = useCanonicalRoute
+      ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng }
+      : currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : undefined;
+    const requestSnapshot: RouteRefreshSnapshot = {
+      deliveryId: delivery.id,
+      status: delivery.status,
+      routeMode: useCanonicalRoute ? 'PLAYBACK_CANONICAL' : 'LIVE',
+      origin,
+      requestedAt: Date.now(),
+    };
+    const freezeRoute = followsPlannedRoute && Boolean(routeGeometry?.coordinates?.length);
+    if (!shouldRefreshRoute(lastRouteRequest.current, requestSnapshot, freezeRoute)) return;
 
     routeController.current?.abort();
     const controller = new AbortController();
@@ -184,7 +196,7 @@ export const LiveTrackingPage: React.FC = () => {
     customerService.getDeliveryRoute(delivery.id, origin, controller.signal)
       .then((data) => { if (requestId === routeRequestId.current) setRouteGeometry(data.geometry); })
       .catch(() => { if (requestId === routeRequestId.current && !controller.signal.aborted) setRouteGeometry(undefined); });
-  }, [currentLocation?.latitude, currentLocation?.longitude, delivery?.id, delivery?.status]);
+  }, [currentLocation?.latitude, currentLocation?.longitude, currentLocation?.source, delivery?.id, delivery?.status]);
 
   useEffect(() => () => routeController.current?.abort(), []);
 
@@ -211,10 +223,24 @@ export const LiveTrackingPage: React.FC = () => {
   const ageMs = currentLocation ? clock - Date.parse(currentLocation.recorded_at) : Number.POSITIVE_INFINITY;
   const fresh = ageMs <= 30000;
   const weak = (currentLocation?.accuracy_m ?? 0) > 60;
+  const followsPlannedRoute = currentLocation?.source === 'ROUTE_PLAYBACK' || currentLocation?.source === 'DEMO_SIMULATION';
+  const routeProgress = followsPlannedRoute && routeGeometry
+    ? routeProgressForCoordinate(routeGeometry, {
+      lat: currentLocation.latitude,
+      lng: currentLocation.longitude,
+    }) ?? undefined
+    : undefined;
+  const riderHasDeparted = !followsPlannedRoute
+    || hasDepartedPickup(routeGeometry, routeProgress);
+  const riderHeadingToPickup = delivery.status === 'ACCEPTED';
   const liveStatus = delivery.status === 'DELIVERED'
     ? 'Delivered Successfully!'
-    : currentLocation?.source === 'DEMO_SIMULATION'
-      ? fresh ? 'Demo route playback active' : 'Demo route playback paused'
+    : followsPlannedRoute
+      ? fresh
+        ? riderHeadingToPickup
+          ? routeProgress != null && routeProgress >= 0.995 ? 'Rider is at the pickup' : 'Rider is heading to the store'
+          : riderHasDeparted ? 'Your delivery is on the way' : 'Rider is leaving the pickup'
+        : 'Waiting for the next location update'
     : !currentLocation
       ? 'Waiting for rider location'
       : weak
@@ -222,7 +248,6 @@ export const LiveTrackingPage: React.FC = () => {
         : !fresh
           ? `Last updated ${Math.max(1, Math.floor(ageMs / 60000))} min ago`
           : connectionState === 'connected' ? 'Live tracking active' : 'Connection interrupted';
-
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] lg:h-[calc(100vh-80px)] -mx-4 sm:mx-0 sm:rounded-2xl overflow-hidden relative border border-slate-200">
 
@@ -262,6 +287,10 @@ export const LiveTrackingPage: React.FC = () => {
           currentAccuracyM={currentLocation?.accuracy_m}
           currentHeading={riderHeading}
           currentSource={currentLocation?.source}
+          currentRouteProgress={routeProgress}
+          animateCurrent={followsPlannedRoute}
+          followCurrent={followsPlannedRoute}
+          journeyStage={riderHeadingToPickup ? 'TO_PICKUP' : 'TO_CUSTOMER'}
           routeGeometry={routeGeometry}
           height="100%"
         />

@@ -53,9 +53,9 @@ CUSTOMERS = [
         "email": "rahul@example.com",
         "name": "Rahul Sharma",
         "phone": "9000000003",
-        "delivery_address": "Satellite Road, Ramdev Nagar, Ahmedabad 380015",
-        "lat": 23.0276,
-        "lng": 72.5076,
+        "delivery_address": "Prahlad Nagar Road, Ahmedabad 380015",
+        "lat": 23.0159,
+        "lng": 72.5108,
     },
 ]
 

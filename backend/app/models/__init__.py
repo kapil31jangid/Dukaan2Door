@@ -3,7 +3,7 @@ from app.models.delivery import Delivery, DeliveryRejection, DeliveryStatus, Del
 from app.models.delivery_partner import DeliveryPartner
 from app.models.inventory import Inventory
 from app.models.inventory_adjustment import InventoryAdjustment
-from app.models.order import Order, OrderItem, OrderStatus
+from app.models.order import Order, OrderItem, OrderStatus, RetailerOfferStatus, RetailerOrderOffer, RetailerOrderOfferItem
 from app.models.product import Product
 from app.models.retailer import Retailer
 from app.models.store import Store
@@ -22,6 +22,9 @@ __all__ = [
     "Order",
     "OrderItem",
     "OrderStatus",
+    "RetailerOfferStatus",
+    "RetailerOrderOffer",
+    "RetailerOrderOfferItem",
     "Product",
     "Retailer",
     "Store",

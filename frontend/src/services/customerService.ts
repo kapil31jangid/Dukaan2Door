@@ -59,6 +59,7 @@ export const customerService = {
     delivery_lat?: number;
     delivery_lng?: number;
     notes?: string;
+    checkout_token?: string;
   }): Promise<Order> {
     return apiRequest<Order>('/api/orders', {
       method: 'POST',

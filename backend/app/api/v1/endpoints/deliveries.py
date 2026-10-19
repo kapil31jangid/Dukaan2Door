@@ -4,12 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import UserContext, get_db, get_current_user, require_role
-from app.models.delivery import DeliveryStatus as ModelDeliveryStatus
+from app.core.config import settings
+from app.models.delivery import DeliveryRejection, DeliveryStatus as ModelDeliveryStatus
+from app.models.delivery_partner import DeliveryPartner
 from app.models.order import Order, OrderStatus as ModelOrderStatus
 from app.models.retailer import Retailer
 from app.schemas.delivery import (
     DeliveryAssignmentResponse,
+    DeliveryLocationSource,
     DeliveryLocationUpdate,
+    DeliveryOfferDeclineResponse,
     DeliveryRejectRequest,
     DeliveryResponse,
     DeliveryStatus,
@@ -21,6 +25,7 @@ from app.schemas.delivery import (
 from app.services.delivery_service import (
     assign_delivery_partner,
     authorize_delivery_access,
+    decline_available_order,
     get_available_partners_for_order,
     get_delivery_or_404,
     get_partner_for_user,
@@ -29,9 +34,10 @@ from app.services.delivery_service import (
     update_delivery_status,
 )
 from app.services.geo_service import calculate_distance_km, has_valid_coordinates
-from app.api.v1.endpoints.orders import _order_to_response
+from app.api.v1.endpoints.orders import ORDER_RESPONSE_LOAD_OPTIONS, _order_to_response
 from app.services.realtime_service import manager
 from app.services.routing_service import get_route
+from app.services.route_playback_service import route_playback_manager
 
 router = APIRouter(prefix="/deliveries", tags=["Delivery Workflow"])
 
@@ -60,8 +66,62 @@ def get_available_orders(
     if not partner or not partner.is_available or not has_valid_coordinates(partner.current_lat, partner.current_lng):
         return []
 
+    orders = (
+        db.query(Order)
+        .options(*ORDER_RESPONSE_LOAD_OPTIONS)
+        .filter(Order.status == ModelOrderStatus.READY_FOR_PICKUP)
+        .all()
+    )
+    candidate_partners = (
+        db.query(DeliveryPartner)
+        .filter(
+            DeliveryPartner.is_available.is_(True),
+            DeliveryPartner.current_lat.isnot(None),
+            DeliveryPartner.current_lng.isnot(None),
+        )
+        .all()
+    )
+    delivery_ids = [order.delivery.id for order in orders if order.delivery]
+    rejected_pairs = set()
+    if delivery_ids:
+        rejected_pairs = {
+            (rejection.delivery_id, rejection.delivery_partner_id)
+            for rejection in db.query(DeliveryRejection).filter(
+                DeliveryRejection.delivery_id.in_(delivery_ids)
+            )
+        }
+
+    def eligible_partners(order: Order) -> list[DeliveryPartner]:
+        required = {"NORMAL"}
+        for item in order.items:
+            if item.product and item.product.requires_special_equipment:
+                required.add(
+                    "FROZEN_BOX"
+                    if item.product.handling_type == "FROZEN"
+                    else item.product.handling_type
+                )
+        delivery_id = order.delivery.id if order.delivery else None
+        return [
+            candidate
+            for candidate in candidate_partners
+            if has_valid_coordinates(candidate.current_lat, candidate.current_lng)
+            and required.issubset({
+                value.strip().upper()
+                for value in (candidate.capabilities or "NORMAL").split(",")
+                if value.strip()
+            })
+            and (delivery_id, candidate.id) not in rejected_pairs
+            and calculate_distance_km(
+                float(order.store.lat),
+                float(order.store.lng),
+                float(candidate.current_lat),
+                float(candidate.current_lng),
+            ) <= 5
+        ]
+
     available = []
-    for order in db.query(Order).filter(Order.status == ModelOrderStatus.READY_FOR_PICKUP).all():
+    pool_sizes: dict[int, int] = {}
+    for order in orders:
         if order.delivery and order.delivery.delivery_partner_id is not None:
             continue
         if not order.store or not has_valid_coordinates(order.store.lat, order.store.lng):
@@ -70,13 +130,39 @@ def get_available_orders(
             float(order.store.lat), float(order.store.lng),
             float(partner.current_lat), float(partner.current_lng),
         )
-        if distance <= 5:
-            from app.services.delivery_service import partner_can_fulfil_order
-            if partner_can_fulfil_order(db, partner, order):
-                available.append((distance, order))
+        if distance > 5:
+            continue
+        eligible = eligible_partners(order)
+        if any(candidate.id == partner.id for candidate in eligible):
+            available.append((distance, order))
+            pool_sizes[order.id] = len(eligible)
 
     available.sort(key=lambda item: (item[0], item[1].created_at))
-    return [_order_to_response(order) for _, order in available]
+    responses = []
+    for _, order in available:
+        response = _order_to_response(order)
+        responses.append(response.model_copy(update={
+            "eligible_rider_pool_size": pool_sizes[order.id],
+        }))
+    return responses
+
+
+@router.post(
+    "/available-orders/{order_id}/decline",
+    response_model=DeliveryOfferDeclineResponse,
+    summary="Decline a ready order without claiming or cancelling it",
+)
+def decline_available_delivery_offer(
+    order_id: int,
+    payload: DeliveryRejectRequest,
+    current_user: UserContext = Depends(require_role(["delivery_partner"])),
+    db: Session = Depends(get_db),
+):
+    partner = get_partner_for_user(db, current_user.user_id)
+    if not partner:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Delivery partner profile not found")
+    decline_available_order(db, order_id, partner, payload.reason)
+    return DeliveryOfferDeclineResponse(order_id=order_id)
 
 
 @router.post(
@@ -222,6 +308,12 @@ async def patch_delivery_status(
     delivery = get_delivery_or_404(db, delivery_id)
     authorize_delivery_access(db, delivery, current_user.user_id, current_user.role, write=True)
     updated = update_delivery_status(db, delivery, _model_status(payload.status))
+    if payload.status == DeliveryStatus.PICKED_UP and settings.route_playback_enabled:
+        updated = update_delivery_status(db, updated, ModelDeliveryStatus.OUT_FOR_DELIVERY)
+    if updated.status in {ModelDeliveryStatus.ACCEPTED, ModelDeliveryStatus.OUT_FOR_DELIVERY}:
+        await route_playback_manager.start(delivery_id)
+    else:
+        await route_playback_manager.stop(delivery_id)
     await manager.broadcast(
         delivery_id,
         "delivery_status_updated",
@@ -244,9 +336,25 @@ async def update_delivery_location(
     current_user: UserContext = Depends(require_role(["delivery_partner"])),
     db: Session = Depends(get_db),
 ):
+    source_disabled = (
+        payload.source == DeliveryLocationSource.DEMO_SIMULATION
+        and not settings.ENABLE_DEMO_ROUTE_PLAYBACK
+    ) or (
+        payload.source == DeliveryLocationSource.ROUTE_PLAYBACK
+        and not settings.route_playback_enabled
+    )
+    if source_disabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Simulated locations are disabled on this backend",
+        )
     delivery = get_delivery_or_404(db, delivery_id)
-    authorize_delivery_access(db, delivery, current_user.user_id, current_user.role, write=True)
     partner = get_partner_for_user(db, current_user.user_id)
+    if not partner or delivery.delivery_partner_id != partner.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for this delivery",
+        )
     update = record_location_update(
         db,
         delivery,
@@ -268,9 +376,14 @@ async def update_delivery_location(
             "source": update.source,
             "status": update.status.value if update.status else None,
             "recorded_at": update.recorded_at.replace(tzinfo=timezone.utc).isoformat(),
+            "sequence": update.id,
+            "delivery_partner_id": partner.id,
         },
     )
-    return DeliveryTrackingResponse.model_validate(update)
+    response = DeliveryTrackingResponse.model_validate(update)
+    response.sequence = update.id
+    response.delivery_partner_id = partner.id
+    return response
 
 
 @router.get("/{delivery_id}/route", response_model=RouteResponse, summary="Get OSRM route for delivery")
@@ -293,7 +406,11 @@ def get_delivery_route(
     route_origin_lng = origin_lng if origin_lng is not None else (
         float(partner.current_lng) if has_partner_location else delivery.pickup_lng
     )
-    going_to_pickup = delivery.status in {ModelDeliveryStatus.ASSIGNED, ModelDeliveryStatus.ACCEPTED}
+    going_to_pickup = delivery.status in {
+        ModelDeliveryStatus.ASSIGNED,
+        ModelDeliveryStatus.ACCEPTED,
+        ModelDeliveryStatus.PICKED_UP,
+    }
     route_destination_lat = delivery.pickup_lat if going_to_pickup else delivery.destination_lat
     route_destination_lng = delivery.pickup_lng if going_to_pickup else delivery.destination_lng
     return RouteResponse(
@@ -323,8 +440,10 @@ def get_delivery_tracking(
 ):
     delivery = get_delivery_or_404(db, delivery_id)
     authorize_delivery_access(db, delivery, current_user.user_id, current_user.role)
-    updates: List[DeliveryTrackingResponse] = [
-        DeliveryTrackingResponse.model_validate(update)
-        for update in sorted(delivery.tracking_updates, key=lambda item: item.recorded_at)
-    ]
+    updates: List[DeliveryTrackingResponse] = []
+    for update in sorted(delivery.tracking_updates, key=lambda item: (item.recorded_at, item.id)):
+        response = DeliveryTrackingResponse.model_validate(update)
+        response.sequence = update.id
+        response.delivery_partner_id = delivery.delivery_partner_id
+        updates.append(response)
     return DeliveryTrackingListResponse(updates=updates)

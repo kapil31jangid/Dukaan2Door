@@ -14,6 +14,12 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: Union[str, List[str]] = ["*"]
     OSRM_BASE_URL: str = "https://router.project-osrm.org"
+    ENABLE_ROUTE_PLAYBACK: bool = False
+    ROUTE_PLAYBACK_SPEED_KMH: float = 40.0
+    ROUTE_PLAYBACK_UPDATE_SECONDS: float = 2.5
+    PICKUP_DWELL_SECONDS: int = 120
+    # Accepted for compatibility with older local environments.
+    ENABLE_DEMO_ROUTE_PLAYBACK: bool = False
     PADDLE_OCR_DETECTION_MODEL: str = "PP-OCRv6_small_det"
     PADDLE_OCR_RECOGNITION_MODEL: str = "PP-OCRv6_medium_rec"
     PADDLE_OCR_CPU_THREADS: int = 4
@@ -26,6 +32,10 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash-lite"
+
+    @property
+    def route_playback_enabled(self) -> bool:
+        return self.ENABLE_ROUTE_PLAYBACK
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

@@ -1,3 +1,8 @@
+import os
+
+os.environ["ENABLE_ROUTE_PLAYBACK"] = "false"
+os.environ["ENABLE_DEMO_ROUTE_PLAYBACK"] = "false"
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -11,10 +16,13 @@ from app.models import *  # noqa: F403
 from app.services.auth_service import create_user_with_profile
 
 
+test_postgres_url = os.getenv("TEST_POSTGRES_URL")
 engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
+    test_postgres_url or "sqlite://",
+    **({} if test_postgres_url else {
+        "connect_args": {"check_same_thread": False},
+        "poolclass": StaticPool,
+    }),
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -45,6 +53,16 @@ def db_session():
         yield db
     finally:
         db.close()
+
+
+@pytest.fixture
+def test_session_factory():
+    return TestingSessionLocal
+
+
+@pytest.fixture
+def test_database_dialect():
+    return engine.dialect.name
 
 
 @pytest.fixture

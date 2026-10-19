@@ -23,7 +23,7 @@ export interface OrderItem {
 export interface Order {
   id: number;
   customer_id: number;
-  store_id: number;
+  store_id?: number | null;
   store_name?: string | null;
   store_address?: string | null;
   store_lat?: number | null;
@@ -42,6 +42,10 @@ export interface Order {
   created_at: string;
   updated_at: string;
   items: OrderItem[];
+  retailer_offer_status?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'LOST' | 'EXPIRED' | null;
+  retailer_offer_expires_at?: string | null;
+  retailer_pool_size?: number;
+  eligible_rider_pool_size?: number | null;
 }
 
 export interface OrderStatusHistoryItem {

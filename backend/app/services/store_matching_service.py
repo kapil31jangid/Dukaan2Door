@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
-from sqlalchemy import or_
+
 from sqlalchemy.orm import Session
 
 from app.models.inventory import Inventory
@@ -16,6 +16,22 @@ class RequestedItem:
 
 
 @dataclass(frozen=True)
+class MatchedStoreItem:
+    requested_product_id: int
+    product_id: int
+    inventory_id: int
+    quantity: int
+
+
+@dataclass(frozen=True)
+class EligibleStoreMatch:
+    store_id: int
+    search_radius_km: int
+    distance_km: float
+    items: tuple[MatchedStoreItem, ...]
+
+
+@dataclass(frozen=True)
 class StoreMatchResult:
     matched: bool
     store_id: Optional[int] = None
@@ -25,13 +41,104 @@ class StoreMatchResult:
 
 
 def _normalize_items(items: Iterable[RequestedItem]) -> List[RequestedItem]:
-    normalized = [RequestedItem(product_id=item.product_id, quantity=item.quantity) for item in items]
-    if not normalized:
-        return []
     requested: dict[int, int] = {}
-    for item in normalized:
+    for item in items:
         requested[item.product_id] = requested.get(item.product_id, 0) + item.quantity
     return [RequestedItem(product_id=product_id, quantity=quantity) for product_id, quantity in requested.items()]
+
+
+def _identity(product: Product) -> tuple[str, str, str]:
+    return (
+        product.name.strip().casefold(),
+        (product.brand or "").strip().casefold(),
+        (product.handling_type or "NORMAL").strip().upper(),
+    )
+
+
+def find_eligible_stores(
+    db: Session,
+    customer_lat: float,
+    customer_lng: float,
+    items: Iterable[RequestedItem],
+) -> list[EligibleStoreMatch]:
+    """Find all stores in the active 2 km tier, falling back to the 5 km tier."""
+    validate_coordinates(customer_lat, customer_lng)
+    requested_items = _normalize_items(items)
+    if not requested_items or any(item.quantity <= 0 for item in requested_items):
+        return []
+
+    requested_products = {
+        product.id: product
+        for product in db.query(Product).filter(
+            Product.id.in_([item.product_id for item in requested_items]),
+            Product.is_active.is_(True),
+        ).all()
+    }
+    if len(requested_products) != len(requested_items):
+        return []
+
+    nearby: list[tuple[float, Store]] = []
+    for store in db.query(Store).filter(
+        Store.is_open.is_(True),
+        Store.lat.isnot(None),
+        Store.lng.isnot(None),
+    ).all():
+        if not has_valid_coordinates(store.lat, store.lng):
+            continue
+        distance = calculate_distance_km(customer_lat, customer_lng, float(store.lat), float(store.lng))
+        if distance <= 5:
+            nearby.append((distance, store))
+    nearby.sort(key=lambda candidate: (candidate[0], candidate[1].id))
+    if not nearby:
+        return []
+
+    store_ids = [store.id for _, store in nearby]
+    rows = db.query(Inventory, Product).join(
+        Product, Product.id == Inventory.product_id
+    ).filter(
+        Inventory.store_id.in_(store_ids),
+        Product.store_id == Inventory.store_id,
+        Inventory.is_available.is_(True),
+        Product.is_active.is_(True),
+    ).all()
+    stock_by_store: dict[int, dict[tuple[str, str, str], list[tuple[Inventory, Product]]]] = {}
+    for inventory, product in rows:
+        stock_by_store.setdefault(inventory.store_id, {}).setdefault(_identity(product), []).append((inventory, product))
+
+    matches: list[tuple[float, Store, tuple[MatchedStoreItem, ...]]] = []
+    for distance, store in nearby:
+        matched_items: list[MatchedStoreItem] = []
+        store_stock = stock_by_store.get(store.id, {})
+        for requested in requested_items:
+            source_product = requested_products[requested.product_id]
+            candidates = store_stock.get(_identity(source_product), [])
+            exact = [row for row in candidates if row[1].id == requested.product_id]
+            candidate_rows = sorted(exact or candidates, key=lambda row: row[1].id)
+            selected = next((row for row in candidate_rows if row[0].quantity >= requested.quantity), None)
+            if selected is None:
+                matched_items = []
+                break
+            inventory, product = selected
+            matched_items.append(MatchedStoreItem(
+                requested_product_id=requested.product_id,
+                product_id=product.id,
+                inventory_id=inventory.id,
+                quantity=requested.quantity,
+            ))
+        if matched_items:
+            matches.append((distance, store, tuple(matched_items)))
+
+    active_radius = 2 if any(distance <= 2 for distance, _, _ in matches) else 5
+    return [
+        EligibleStoreMatch(
+            store_id=store.id,
+            search_radius_km=active_radius,
+            distance_km=round(distance, 3),
+            items=matched_items,
+        )
+        for distance, store, matched_items in matches
+        if distance <= active_radius
+    ]
 
 
 def find_matching_store(
@@ -40,117 +147,14 @@ def find_matching_store(
     customer_lng: float,
     items: Iterable[RequestedItem],
 ) -> StoreMatchResult:
-    validate_coordinates(customer_lat, customer_lng)
-    requested_items = _normalize_items(items)
-    if not requested_items:
-        return StoreMatchResult(matched=False, reason="No order items supplied")
-
-    product_ids = [item.product_id for item in requested_items]
-    required_by_product = {item.product_id: item.quantity for item in requested_items}
-
-    # 1. Fetch details of requested products
-    catalog_products = db.query(Product).filter(Product.id.in_(product_ids)).all()
-    if not catalog_products:
-        return StoreMatchResult(matched=False, reason="Requested products not found in catalog")
-
-    product_names = {p.id: p.name.strip().lower() for p in catalog_products}
-    req_names_list = list(product_names.values())
-
-    # 2. Fetch all open stores with valid coordinates
-    open_stores = (
-        db.query(Store)
-        .filter(
-            Store.is_open.is_(True),
-            Store.lat.isnot(None),
-            Store.lng.isnot(None),
-        )
-        .all()
-    )
-
-    if not open_stores:
-        return StoreMatchResult(matched=False, reason="No open stores available")
-
-    # 3. Calculate distances and filter stores within 5 km
-    nearby_stores: list[tuple[float, Store]] = []
-    for store in open_stores:
-        if store.lat is None or store.lng is None or not has_valid_coordinates(store.lat, store.lng):
-            continue
-        dist = calculate_distance_km(customer_lat, customer_lng, float(store.lat), float(store.lng))
-        if dist <= 5.0:
-            nearby_stores.append((dist, store))
-
-    if not nearby_stores:
-        return StoreMatchResult(matched=False, search_radius_km=5, reason="No eligible store within 5 km")
-
-    # Sort by nearest store first
-    nearby_stores.sort(key=lambda x: x[0])
-    nearby_store_ids = [s.id for _, s in nearby_stores]
-
-    # 4. Fetch inventory for requested product IDs / names across nearby stores in 1 fast query
-    inventory_rows = (
-        db.query(Inventory, Product)
-        .join(Product, Product.id == Inventory.product_id)
-        .filter(
-            Inventory.store_id.in_(nearby_store_ids),
-            # Never use a product from one store with inventory belonging to
-            # another store. Legacy rows can otherwise make a nearby store
-            # appear eligible and fail during the order's final stock lock.
-            Product.store_id == Inventory.store_id,
-            Inventory.is_available.is_(True),
-            Inventory.quantity >= 1,
-            Product.is_active.is_(True),
-            or_(
-                Product.id.in_(product_ids),
-                Product.name.in_([p.name for p in catalog_products])
-            ),
-        )
-        .all()
-    )
-
-    # Group by store_id -> {prod_id: qty, prod_name: qty}
-    stock_by_store: dict[int, dict] = {}
-    for inv, prod in inventory_rows:
-        store_stock = stock_by_store.setdefault(inv.store_id, {"by_id": {}, "by_name": {}})
-        store_stock["by_id"][prod.id] = inv.quantity
-        store_stock["by_name"][prod.name.strip().lower()] = inv.quantity
-
-    eligible_matches: list[tuple[float, Store]] = []
-    for distance, store in nearby_stores:
-        store_stock = stock_by_store.get(store.id, {"by_id": {}, "by_name": {}})
-        can_fulfill_all = True
-        
-        for req_id, req_qty in required_by_product.items():
-            req_name = product_names.get(req_id, "")
-            avail = store_stock["by_id"].get(req_id, 0)
-            if avail < req_qty:
-                avail = store_stock["by_name"].get(req_name, 0)
-
-            if avail < req_qty:
-                can_fulfill_all = False
-                break
-
-        if can_fulfill_all:
-            eligible_matches.append((distance, store))
-
-    within_2km = [m for m in eligible_matches if m[0] <= 2.0]
-    if within_2km:
-        dist, store = within_2km[0]
+    matches = find_eligible_stores(db, customer_lat, customer_lng, items)
+    if matches:
+        first = matches[0]
         return StoreMatchResult(
             matched=True,
-            store_id=store.id,
-            search_radius_km=2,
-            distance_km=round(dist, 3),
+            store_id=first.store_id,
+            search_radius_km=first.search_radius_km,
+            distance_km=first.distance_km,
+            reason="No eligible store within 2 km" if first.search_radius_km == 5 else None,
         )
-
-    within_5km = [m for m in eligible_matches if m[0] <= 5.0]
-    if within_5km:
-        dist, store = within_5km[0]
-        return StoreMatchResult(
-            matched=True,
-            store_id=store.id,
-            search_radius_km=5,
-            distance_km=round(dist, 3),
-            reason="No eligible store within 2 km",
-        )
-
     return StoreMatchResult(matched=False, search_radius_km=5, reason="No eligible store within 5 km")

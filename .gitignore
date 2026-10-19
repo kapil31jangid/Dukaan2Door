@@ -12,6 +12,8 @@ access_token
 __pycache__/
 *.py[cod]
 *.egg-info/
+.ipynb_checkpoints/
+__pypackages__/
 
 # Local Python environments
 .venv/
@@ -26,20 +28,28 @@ ENV/
 .coverage.*
 coverage.xml
 htmlcov/
+.hypothesis/
 
 # Local Codex/agent tooling
 .agents/
+.archify/
 skills-lock.json
 
 # Local editor and IDE settings
 .vscode/
 .idea/
 .vs/
+.history/
+*.code-workspace
 
 # Environment variables
 .env
 .env.*
 !.env.example
+.envrc
+.direnv/
+*.pem
+*.key
 
 # Node / Frontend
 node_modules/
@@ -47,6 +57,13 @@ dist/
 .vite/
 coverage/
 frontend/test-results/
+playwright-report/
+test-results/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Local logs and operating-system files
 *.log
@@ -54,10 +71,21 @@ frontend/test-results/
 Thumbs.db
 *.swp
 *.swo
+*.orig
+*.rej
+*.pid
+*.pid.lock
 
 # Temporary inventory uploads
 backend/uploads/
 backend/tmp/
+uploads/
+tmp/
+
+# Local databases created by development and isolated tests
+*.db
+*.sqlite
+*.sqlite3
 
 # Local PaddleOCR/PaddleX model caches and benchmark artifacts
 .paddleocr/

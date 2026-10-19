@@ -247,6 +247,11 @@ def main() -> int:
     parser.add_argument("--model", type=str, default=None, help="Gemini model override")
     args = parser.parse_args()
 
+    if args.manifest.exists() and not args.manifest.is_file():
+        parser.error(
+            f"manifest must be a JSON file, not a directory: {args.manifest}. "
+            "Use benchmarks/inventory_ocr/manifest.json"
+        )
     if not args.manifest.exists():
         print(f"Creating evaluation dataset and manifest at {args.manifest}...")
         payload = create_sample_manifest(args.manifest)

@@ -14,6 +14,7 @@ export const CheckoutPage: React.FC = () => {
   const { items, totalItems, totalPrice, clearCart } = useCart();
   const isRedirectingToTracking = useRef(false);
   const submitting = useRef(false);
+  const checkoutToken = useRef(crypto.randomUUID());
   
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [address, setAddress] = useState('');
@@ -84,6 +85,7 @@ export const CheckoutPage: React.FC = () => {
         delivery_lat: lat,
         delivery_lng: lng,
         notes: notes.trim() || undefined,
+        checkout_token: checkoutToken.current,
       });
       
       isRedirectingToTracking.current = true;

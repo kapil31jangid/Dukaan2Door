@@ -1,6 +1,6 @@
 import { apiRequest, uploadFile } from './api';
 import { RetailerProfile, RetailerUpdate, StoreProfile, StoreUpdate } from '../types/user';
-import { InventoryAnalysisResponse, InventoryConfirmItem, Product, ProductAvailabilityPatch, ProductCreate, ProductUpdate } from '../types/product';
+import { InventoryAnalysisResponse, InventoryConfirmItem, InventoryStockAdjustmentRequest, InventoryStockAdjustmentResult, Product, ProductAvailabilityPatch, ProductCreate, ProductUpdate } from '../types/product';
 import { Order, OrderStatus } from '../types/order';
 import { DeliveryAssignmentResponse } from '../types/delivery';
 
@@ -80,6 +80,12 @@ export const retailerService = {
   },
 
   async updateOrderStatus(orderId: number, targetStatus: OrderStatus): Promise<Order> {
+    if (targetStatus === 'ACCEPTED') {
+      return apiRequest<Order>(`/api/orders/${orderId}/retailer-accept`, { method: 'POST' });
+    }
+    if (targetStatus === 'REJECTED') {
+      return apiRequest<Order>(`/api/orders/${orderId}/retailer-reject`, { method: 'POST' });
+    }
     return apiRequest<Order>(`/api/orders/${orderId}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status: targetStatus }),
@@ -107,6 +113,19 @@ export const retailerService = {
     const form = new FormData();
     form.append('file', file);
     return uploadFile<InventoryAnalysisResponse>('/api/retailer/inventory/analyze', form);
+  },
+
+  async analyzeProductPhoto(file: File): Promise<InventoryAnalysisResponse> {
+    const form = new FormData();
+    form.append('file', file);
+    return uploadFile<InventoryAnalysisResponse>('/api/retailer/inventory/analyze-product-photo', form);
+  },
+
+  async adjustInventory(payload: InventoryStockAdjustmentRequest): Promise<InventoryStockAdjustmentResult> {
+    return apiRequest<InventoryStockAdjustmentResult>('/api/retailer/inventory/adjust', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   async confirmInventory(items: InventoryConfirmItem[], source: 'IMAGE_ASSISTED' | 'MANUAL', confirmationId: string): Promise<Array<{ product_id: number; inventory_id: number; created: boolean; quantity_before: number; quantity_after: number }>> {

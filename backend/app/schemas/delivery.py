@@ -18,6 +18,7 @@ class DeliveryStatus(str, Enum):
 
 class DeliveryLocationSource(str, Enum):
     GPS = "GPS"
+    ROUTE_PLAYBACK = "ROUTE_PLAYBACK"
     DEMO_SIMULATION = "DEMO_SIMULATION"
     LIFECYCLE = "LIFECYCLE"
 
@@ -48,6 +49,12 @@ class DeliveryRejectRequest(BaseModel):
     reason: Optional[str] = Field(None, max_length=500)
 
 
+class DeliveryOfferDeclineResponse(BaseModel):
+    order_id: int
+    declined: bool = True
+    available_to_other_riders: bool = True
+
+
 class DeliveryLocationUpdate(BaseModel):
     latitude: float
     longitude: float
@@ -73,6 +80,8 @@ class DeliveryTrackingResponse(BaseModel):
     source: DeliveryLocationSource = DeliveryLocationSource.GPS
     status: Optional[DeliveryStatus] = None
     recorded_at: datetime
+    sequence: Optional[int] = None
+    delivery_partner_id: Optional[int] = None
 
     @field_validator("recorded_at", mode="before")
     @classmethod

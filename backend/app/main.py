@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -8,12 +9,21 @@ from sqlalchemy.orm import Session
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.deps import get_db
+from app.services.route_playback_service import route_playback_manager
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await route_playback_manager.resume_active()
+    yield
+    await route_playback_manager.shutdown()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Set up CORS middleware

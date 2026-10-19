@@ -67,9 +67,11 @@ def main() -> int:
     columns = {column["name"]: column for column in schema.get_columns("inventory_adjustments")}
     indexes = {index["name"] for index in schema.get_indexes("inventory_adjustments")}
     assert "batch_id" in columns and columns["batch_id"]["nullable"] is True
+    assert "actor_user_id" in columns and columns["actor_user_id"]["nullable"] is True
     assert "ix_inventory_adjustments_store_batch" in indexes
+    assert "ix_inventory_adjustments_actor_user_id" in indexes
     with engine.connect() as connection:
-        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == "20261009_0006"
+        assert connection.execute(text("select version_num from alembic_version")).scalar_one() == "20261012_0008"
 
     app.dependency_overrides[get_db] = override_get_db
     suffix = uuid4().hex[:10]
@@ -146,6 +148,49 @@ def main() -> int:
             )
             assert cross_store.status_code == 404
 
+            adjustment_payload = {
+                "product_id": product_id,
+                "direction": "ADD",
+                "quantity": 4,
+                "reason": "NEW_STOCK_RECEIVED",
+                "source": "PRODUCT_PHOTO",
+                "confirmation_id": f"pg-adjust-{suffix}",
+            }
+            adjusted = client.post("/api/retailer/inventory/adjust", headers=owner, json=adjustment_payload)
+            replayed_adjustment = client.post("/api/retailer/inventory/adjust", headers=owner, json=adjustment_payload)
+            assert adjusted.status_code == 200 and replayed_adjustment.status_code == 200
+            assert adjusted.json() == replayed_adjustment.json()
+            assert adjusted.json()["quantity_before"] == 7
+            assert adjusted.json()["quantity_after"] == 11
+
+            insufficient = client.post(
+                "/api/retailer/inventory/adjust",
+                headers=owner,
+                json={
+                    "product_id": product_id,
+                    "direction": "REDUCE",
+                    "quantity": 12,
+                    "reason": "DAMAGED_PRODUCT",
+                    "confirmation_id": f"pg-insufficient-{suffix}",
+                },
+            )
+            assert insufficient.status_code == 409
+            products_after_insufficient = client.get("/api/retailers/me/products", headers=owner).json()
+            assert next(row for row in products_after_insufficient if row["id"] == product_id)["quantity"] == 11
+
+            isolated_adjustment = client.post(
+                "/api/retailer/inventory/adjust",
+                headers=other,
+                json={
+                    "product_id": product_id,
+                    "direction": "ADD",
+                    "quantity": 1,
+                    "reason": "MANUAL_CORRECTION",
+                    "confirmation_id": f"pg-adjust-isolation-{suffix}",
+                },
+            )
+            assert isolated_adjustment.status_code == 404
+
             rollback_name = f"Rollback Marker {suffix}"
             rollback = client.post(
                 "/api/retailer/inventory/confirm",
@@ -171,7 +216,7 @@ def main() -> int:
         app.dependency_overrides.pop(get_db, None)
         engine.dispose()
 
-    print("PostgreSQL inventory verification passed: schema, legacy rows, replay, isolation, and rollback.")
+    print("PostgreSQL inventory verification passed: schema, actor audit, replay, adjustment safety, isolation, and rollback.")
     return 0
 
 

@@ -30,8 +30,8 @@ export const OrderConfirmationPage: React.FC = () => {
         <div className="flex flex-col items-center px-6 py-10 text-center sm:px-10">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-9 w-9" aria-hidden="true" /></div>
           <p className="mt-5 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Order received</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Your order is on its way to the store</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">The local store has received order #{order.id}. Follow the live status as the retailer accepts, prepares, and hands it to a delivery partner.</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Nearby stores are reviewing your order</h1>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">Order #{order.id} was shared with {order.retailer_pool_size || 1} eligible nearby store{order.retailer_pool_size === 1 ? '' : 's'}. The first store to accept will prepare it for delivery.</p>
           <div className="mt-7 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <Button size="lg" onClick={() => navigate(`/customer/orders/${order.id}/status`)}>Track order</Button>
             <Button size="lg" variant="outline" onClick={() => navigate('/customer/store')}>Continue shopping</Button>
@@ -41,7 +41,7 @@ export const OrderConfirmationPage: React.FC = () => {
 
       <Card><CardContent className="grid gap-4 p-5 sm:grid-cols-3">
         <div className="flex items-start gap-3"><Package className="mt-0.5 h-5 w-5 text-violet-600" /><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Order</p><p className="font-bold text-slate-900">#{order.id}</p><p className="text-sm text-slate-500">{order.items.length} item{order.items.length === 1 ? '' : 's'} · ₹{order.total_amount.toFixed(2)}</p></div></div>
-        <div className="flex items-start gap-3"><Store className="mt-0.5 h-5 w-5 text-emerald-600" /><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Store</p><p className="font-bold text-slate-900">{order.store_name || 'Dukaan2Door Local Store'}</p><p className="text-sm text-slate-500">Order status: {order.status.replace(/_/g, ' ')}</p></div></div>
+        <div className="flex items-start gap-3"><Store className="mt-0.5 h-5 w-5 text-emerald-600" /><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Store</p><p className="font-bold text-slate-900">{order.store_name || 'Matching nearby retailers'}</p><p className="text-sm text-slate-500">Order status: {order.status.replace(/_/g, ' ')}</p></div></div>
         <div className="flex items-start gap-3"><MapPin className="mt-0.5 h-5 w-5 text-blue-600" /><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Delivering to</p><p className="font-semibold text-slate-800">{order.delivery_address}</p></div></div>
       </CardContent></Card>
 

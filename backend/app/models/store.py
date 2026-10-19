@@ -27,3 +27,4 @@ class Store(Base):
     products = relationship("Product", back_populates="store")
     inventory_items = relationship("Inventory", back_populates="store", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="store")
+    order_offers = relationship("RetailerOrderOffer", back_populates="store", cascade="all, delete-orphan")

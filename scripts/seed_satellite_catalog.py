@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Copy a controlled active catalog into the named Satellite demo stores.
 
-Only existing active product names, prices, descriptions, categories, images,
-and positive inventory quantities are reused. No synthetic product or quantity
-is generated. Existing products, inventory, orders, and deliveries are not
-deleted or modified.
+Only existing active product metadata and positive inventory quantities are
+reused; no synthetic product or quantity is generated. Existing demo catalog
+metadata is synchronized. Inventory is reset only with the explicit --restock
+flag. Orders and deliveries are never deleted or modified.
 """
 
 from __future__ import annotations
@@ -27,20 +27,34 @@ from app.models.product import Product  # noqa: E402
 from app.models.store import Store  # noqa: E402
 
 
-TARGET_STORE_NAMES = {"Rahul Satellite Kirana", "Neha Satellite Daily Needs"}
+TARGET_STORE_NAMES = {
+    "Rahul Satellite Kirana",
+    "Neha Satellite Daily Needs",
+    "Priya Satellite Fresh Mart",
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-remote", action="store_true", help="Allow writes to a non-SQLite database")
     parser.add_argument("--limit", type=int, default=30, help="Maximum existing catalog items copied per store")
+    parser.add_argument(
+        "--restock",
+        action="store_true",
+        help="Reset only the allowlisted demo-store inventory to the source quantities",
+    )
     return parser.parse_args()
 
 
-def seed(db, limit: int) -> tuple[int, int]:
+def seed(db, limit: int, restock: bool = False) -> tuple[int, int, int]:
     stores = db.query(Store).filter(Store.store_name.in_(TARGET_STORE_NAMES)).all()
-    if not stores:
-        raise RuntimeError("Satellite stores were not found. Run seed_dashboard_accounts.py first.")
+    if len(stores) != len(TARGET_STORE_NAMES):
+        found = {store.store_name for store in stores}
+        missing = ", ".join(sorted(TARGET_STORE_NAMES - found))
+        raise RuntimeError(
+            f"Satellite pooling stores are missing ({missing}). "
+            "Run seed_dashboard_accounts.py first."
+        )
 
     source_rows = (
         db.query(Product, Inventory)
@@ -73,14 +87,25 @@ def seed(db, limit: int) -> tuple[int, int]:
             )
             if existing:
                 product = existing
+                product.brand = source_product.brand
+                product.description = source_product.description
+                product.category = source_product.category
+                product.price = source_product.price
+                product.image_url = source_product.image_url
+                product.handling_type = source_product.handling_type
+                product.requires_special_equipment = source_product.requires_special_equipment
+                product.is_active = True
             else:
                 product = Product(
                     store_id=store.id,
                     name=source_product.name,
+                    brand=source_product.brand,
                     description=source_product.description,
                     category=source_product.category,
                     price=source_product.price,
                     image_url=source_product.image_url,
+                    handling_type=source_product.handling_type,
+                    requires_special_equipment=source_product.requires_special_equipment,
                     is_active=True,
                 )
                 db.add(product)
@@ -101,9 +126,12 @@ def seed(db, limit: int) -> tuple[int, int]:
                 )
                 db.add(inventory)
                 inventory_added += 1
+            elif restock:
+                inventory.quantity = source_inventory.quantity
+                inventory.is_available = True
 
     db.commit()
-    return products_added, inventory_added
+    return products_added, inventory_added, len(stores)
 
 
 def main() -> int:
@@ -115,13 +143,17 @@ def main() -> int:
         return 2
     db = SessionLocal()
     try:
-        products_added, inventory_added = seed(db, args.limit)
+        products_added, inventory_added, stores_ready = seed(db, args.limit, args.restock)
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
-    print(f"Satellite catalog ready: products_added={products_added}, inventory_added={inventory_added}")
+    print(
+        "Satellite pooling catalog ready: "
+        f"stores={stores_ready}, products_added={products_added}, "
+        f"inventory_added={inventory_added}, restocked={args.restock}"
+    )
     return 0
 
 

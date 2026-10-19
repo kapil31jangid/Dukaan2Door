@@ -41,6 +41,9 @@ export function isNewerTrackingPoint(
   const candidateTime = Date.parse(candidate.recorded_at);
   if (!Number.isFinite(candidateTime)) return false;
   if (!current) return true;
+  if (candidate.sequence != null && current.sequence != null) {
+    return candidate.sequence > current.sequence;
+  }
   const currentTime = Date.parse(current.recorded_at);
   return !Number.isFinite(currentTime) || candidateTime > currentTime;
 }
@@ -54,6 +57,7 @@ export interface AlignedPosition {
 export interface RouteRefreshSnapshot {
   deliveryId: number;
   status: string;
+  routeMode?: 'LIVE' | 'PLAYBACK_CANONICAL';
   origin?: MapCoordinate;
   requestedAt: number;
 }
@@ -63,7 +67,10 @@ export function shouldRefreshRoute(
   next: RouteRefreshSnapshot,
   freezeMovement = false,
 ): boolean {
-  if (!previous || previous.deliveryId !== next.deliveryId || previous.status !== next.status) return true;
+  if (!previous
+    || previous.deliveryId !== next.deliveryId
+    || previous.status !== next.status
+    || previous.routeMode !== next.routeMode) return true;
   if (freezeMovement) return false;
   if (next.requestedAt - previous.requestedAt < 15000) return false;
   if (!previous.origin && !next.origin) return false;
@@ -100,6 +107,147 @@ export function sampleRouteAtProgress(
     remaining -= segment.length;
   }
   return points[points.length - 1];
+}
+
+export function routeLengthMeters(route: RouteGeometry | null | undefined): number {
+  const points = route?.coordinates
+    ?.map(([lng, lat]) => ({ lat, lng }))
+    .filter(isValidMapCoordinate) || [];
+  return points.slice(0, -1).reduce(
+    (total, point, index) => total + distanceMeters(point, points[index + 1]),
+    0,
+  );
+}
+
+export function hasDepartedPickup(
+  route: RouteGeometry | null | undefined,
+  routeProgress: number | null | undefined,
+  minimumDistanceM = 12,
+): boolean {
+  if (routeProgress == null || !Number.isFinite(routeProgress)) return false;
+  const progress = Math.max(0, Math.min(1, routeProgress));
+  return routeLengthMeters(route) * progress >= minimumDistanceM;
+}
+
+export function advanceRouteProgress(
+  route: RouteGeometry | null | undefined,
+  progress: number,
+  elapsedMs: number,
+  speedKmh: number,
+): number {
+  const lengthM = routeLengthMeters(route);
+  if (lengthM <= 0 || elapsedMs <= 0 || speedKmh <= 0) {
+    return Math.max(0, Math.min(1, progress));
+  }
+  const distanceTravelledM = (speedKmh * 1000 / 3600) * (elapsedMs / 1000);
+  return Math.min(1, Math.max(0, progress) + distanceTravelledM / lengthM);
+}
+
+export function randomizedDemoSpeed(
+  baselineKmh: number,
+  routeProgress: number,
+  randomValue: number,
+): number {
+  const baseline = Math.max(10, Math.min(80, baselineKmh));
+  const variation = 0.55 + Math.max(0, Math.min(1, randomValue)) * 0.65;
+  let target = baseline * variation;
+  const progress = Math.max(0, Math.min(1, routeProgress));
+  if (progress > 0.88) {
+    const arrivalRatio = Math.max(0.18, (1 - progress) / 0.12);
+    target = Math.min(target, baseline * arrivalRatio);
+  }
+  return Math.max(6, Math.min(80, target));
+}
+
+export function approachDemoSpeed(
+  currentKmh: number,
+  targetKmh: number,
+  elapsedMs: number,
+  accelerationKmhPerSecond = 12,
+): number {
+  if (elapsedMs <= 0) return currentKmh;
+  const maximumChange = Math.max(0, accelerationKmhPerSecond) * elapsedMs / 1000;
+  const difference = targetKmh - currentKmh;
+  if (Math.abs(difference) <= maximumChange) return targetKmh;
+  return currentKmh + Math.sign(difference) * maximumChange;
+}
+
+export function headingAtRouteProgress(
+  route: RouteGeometry | null | undefined,
+  progress: number,
+): number | null {
+  const lengthM = routeLengthMeters(route);
+  if (lengthM <= 0) return null;
+  const current = sampleRouteAtProgress(route, progress);
+  const ahead = sampleRouteAtProgress(route, Math.min(1, progress + Math.max(0.0001, 5 / lengthM)));
+  return current && ahead ? bearingDegrees(current, ahead) : null;
+}
+
+export function coveredRouteFromProgress(
+  route: RouteGeometry | null | undefined,
+  progress: number,
+): RouteGeometry | null {
+  const points = route?.coordinates
+    ?.filter(([lng, lat]) => isValidMapCoordinate({ lat, lng })) || [];
+  if (points.length < 2) return null;
+  const clamped = Math.max(0, Math.min(1, progress));
+  const firstPoint = points[0];
+  if (clamped <= 0) return { type: 'LineString', coordinates: [firstPoint, firstPoint] };
+  if (clamped >= 1) return { type: 'LineString', coordinates: [...points] };
+
+  const current = sampleRouteAtProgress(route, clamped);
+  if (!current) return null;
+  const lengths = points.slice(0, -1).map(([lng, lat], index) => (
+    distanceMeters({ lat, lng }, { lat: points[index + 1][1], lng: points[index + 1][0] })
+  ));
+  let coveredLength = clamped * lengths.reduce((sum, length) => sum + length, 0);
+  for (let index = 0; index < lengths.length; index += 1) {
+    if (coveredLength <= lengths[index]) {
+      return {
+        type: 'LineString',
+        coordinates: [...points.slice(0, index + 1), [current.lng, current.lat]],
+      };
+    }
+    coveredLength -= lengths[index];
+  }
+  return { type: 'LineString', coordinates: [...points] };
+}
+
+export function remainingRouteFromProgress(
+  route: RouteGeometry | null | undefined,
+  progress: number,
+): RouteGeometry | null {
+  const points = route?.coordinates
+    ?.filter(([lng, lat]) => isValidMapCoordinate({ lat, lng })) || [];
+  if (points.length < 2) return null;
+
+  const clamped = Math.max(0, Math.min(1, progress));
+  if (clamped <= 0) return { type: 'LineString', coordinates: [...points] };
+  const finalPoint = points[points.length - 1];
+  if (clamped >= 1) return { type: 'LineString', coordinates: [finalPoint, finalPoint] };
+
+  const lengths = points.slice(0, -1).map(([lng, lat], index) => (
+    distanceMeters({ lat, lng }, { lat: points[index + 1][1], lng: points[index + 1][0] })
+  ));
+  const totalLength = lengths.reduce((sum, length) => sum + length, 0);
+  if (totalLength <= 0) return { type: 'LineString', coordinates: [finalPoint, finalPoint] };
+
+  let coveredLength = clamped * totalLength;
+  for (let index = 0; index < lengths.length; index += 1) {
+    const segmentLength = lengths[index];
+    if (coveredLength <= segmentLength) {
+      const ratio = segmentLength === 0 ? 0 : coveredLength / segmentLength;
+      const [startLng, startLat] = points[index];
+      const [endLng, endLat] = points[index + 1];
+      const currentPoint: [number, number] = [
+        startLng + (endLng - startLng) * ratio,
+        startLat + (endLat - startLat) * ratio,
+      ];
+      return { type: 'LineString', coordinates: [currentPoint, ...points.slice(index + 1)] };
+    }
+    coveredLength -= segmentLength;
+  }
+  return { type: 'LineString', coordinates: [finalPoint, finalPoint] };
 }
 
 export function routeProgressForCoordinate(

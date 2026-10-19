@@ -84,6 +84,24 @@ Your goal is to extract structured inventory product candidates with high precis
 12. Keep product_name exactly as written in the document. If it is Hindi or another non-English language, also return an accurate normalized English translation in english_product_name. Do not transliterate when a clear translation exists (for example, चीनी -> Sugar and आटा -> Wheat Flour). If uncertain, leave english_product_name null and require review.
 """
 
+PRODUCT_PHOTO_PROMPT = """You are analyzing photographs of packaged products for a local Indian Kirana store.
+The image may contain one product package or several distinct packaged products.
+
+Return document_type as 'SHELF_IMAGE' and extract only details visibly supported by packaging or labels.
+
+### ANTI-HALLUCINATION RULES (CRITICAL):
+1. Never invent a product name, brand, variant, pack size, unit, price, quantity, barcode, or expiry date.
+2. Identify each visibly distinct product candidate once. Different pack sizes or variants must remain separate candidates.
+3. A single visible package does not establish inventory quantity. Return quantity as null for a single package.
+4. If multiple identical units are clearly visible, quantity may contain the visible count, but set needs_review=true and explain that it is only a visual estimate.
+5. Put a clearly readable printed MRP in printed_mrp. Do not treat MRP as the store's selling price; leave unit_price null.
+6. Use product_name exactly as visible. Provide english_product_name only when a non-English name has a reliable translation.
+7. Return null for every unreadable or ambiguous field and explain uncertainty in review_reason.
+8. Accuracy is more important than completeness. Do not infer common kirana products from colors or package shape alone.
+9. Category and handling requirement may be returned only when supported by the identified product. Frozen products must use handling_requirement='FROZEN'.
+10. Do not return shelves, price tags, people, logos without a saleable product, or background objects as products.
+"""
+
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097f]")
 
 
@@ -223,6 +241,38 @@ class GeminiInventoryAnalyzer:
         content_type: str,
     ) -> tuple[list[ExtractedInventoryItem], list[OCRTextLine]]:
         """Call Gemini API with structured output and validate results server-side."""
+        return self._analyze_with_prompt(
+            content,
+            filename,
+            content_type,
+            GEMINI_EXTRACTION_PROMPT,
+            product_photo=False,
+        )
+
+    def analyze_product_photo(
+        self,
+        content: bytes,
+        filename: str,
+        content_type: str,
+    ) -> tuple[list[ExtractedInventoryItem], list[OCRTextLine]]:
+        """Extract review-only packaging evidence from one or more product photos."""
+        return self._analyze_with_prompt(
+            content,
+            filename,
+            content_type,
+            PRODUCT_PHOTO_PROMPT,
+            product_photo=True,
+        )
+
+    def _analyze_with_prompt(
+        self,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        prompt: str,
+        *,
+        product_photo: bool,
+    ) -> tuple[list[ExtractedInventoryItem], list[OCRTextLine]]:
         processed_bytes, mime_type = self.validate_and_preprocess_image(content, filename, content_type)
         quota_remaining = self._quota_cooldown_remaining()
         if quota_remaining:
@@ -261,7 +311,7 @@ class GeminiInventoryAnalyzer:
                     )
                 response = client.models.generate_content(
                     model=self.model,
-                    contents=[GEMINI_EXTRACTION_PROMPT, part],
+                    contents=[prompt, part],
                     config=config,
                 )
         except APIError as exc:
@@ -315,7 +365,21 @@ class GeminiInventoryAnalyzer:
                 detail="We couldn't reliably extract products from this image. You can try another photo or enter the products manually.",
             )
 
-        return self._transform_and_validate(parsed_result)
+        items, lines = self._transform_and_validate(parsed_result)
+        if product_photo:
+            for item in items:
+                item.needs_review = True
+                item.price = None
+                if item.quantity is None or item.quantity == 1:
+                    item.quantity = None
+                    message = "Inventory quantity must be entered by the retailer; one visible package is not a stock count."
+                else:
+                    message = "Visible unit count is an estimate only. Verify the adjustment quantity before confirmation."
+                if message not in item.warnings:
+                    item.warnings.append(message)
+                if not item.review_reason:
+                    item.review_reason = message
+        return items, lines
 
     def _transform_and_validate(
         self, result: GeminiInventoryAnalysisResult
@@ -357,6 +421,10 @@ class GeminiInventoryAnalyzer:
             total_price = candidate.total_price
             if total_price is not None and total_price <= 0:
                 total_price = None
+
+            printed_mrp = candidate.printed_mrp
+            if printed_mrp is not None and printed_mrp <= 0:
+                printed_mrp = None
 
             # Category validation
             raw_category = (candidate.category or "").strip()
@@ -406,6 +474,7 @@ class GeminiInventoryAnalyzer:
                 size=size,
                 price=price,
                 total_price=total_price,
+                printed_mrp=printed_mrp,
                 category=category,
                 handling_type=handling_type,
                 requires_special_equipment=handling_type == "FROZEN",

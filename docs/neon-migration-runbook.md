@@ -1,8 +1,12 @@
 # Neon Migration Runbook
 
-This runbook applies Alembic revision `20261009_0006` safely. It adds the nullable
-`inventory_adjustments.batch_id` column and a partial `(store_id, batch_id)`
-index. It does not rewrite existing values or make legacy rows invalid.
+This runbook applies the current Alembic chain through revision
+`20261017_0009` safely. Revision `20261009_0006` adds inventory confirmation
+idempotency, `20261011_0007` labels delivery tracking sources,
+`20261012_0008` adds the nullable inventory-adjustment actor reference, and
+`20261017_0009` adds retailer opportunities, checkout idempotency, and deferred
+store assignment. These revisions preserve existing rows and do not reset
+operational data.
 
 ## Before Deployment
 
@@ -31,7 +35,7 @@ python -m alembic current
 python -m alembic heads
 ```
 
-Expected head: `20261009_0006`. Stop if there is more than one head, the target
+Expected head: `20261017_0009`. Stop if there is more than one head, the target
 is unexpected, or the current revision is unknown.
 
 ## Test Branch Migration
@@ -68,7 +72,7 @@ python -m alembic upgrade head
 python -m alembic current
 ```
 
-The final command must report `20261009_0006 (head)`.
+The final command must report `20261017_0009 (head)`.
 
 ## Post-Migration Checks
 
@@ -85,10 +89,20 @@ SELECT indexname, indexdef
 FROM pg_indexes
 WHERE tablename = 'inventory_adjustments'
   AND indexname = 'ix_inventory_adjustments_store_batch';
+
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'inventory_adjustments' AND column_name = 'actor_user_id';
+
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'inventory_adjustments'
+  AND indexname = 'ix_inventory_adjustments_actor_user_id';
 ```
 
-Expected: nullable `character varying(100)` and a partial index whose predicate
-is `batch_id IS NOT NULL`. Then:
+Expected: nullable `batch_id` and `actor_user_id` columns, the partial batch
+index whose predicate is `batch_id IS NOT NULL`, and the actor lookup index.
+Then:
 
 1. Start one API instance and verify `/health`.
 2. Read existing inventory and adjustment history.
@@ -112,9 +126,10 @@ is `batch_id IS NOT NULL`. Then:
 
 ## Evidence From Repository Validation
 
-On 2026-10-10 the inventory migration chain was applied from an empty PostgreSQL
-16 database through `20261009_0006`. `scripts/verify_postgres_inventory.py`
-passed schema, legacy-read, replay, isolation, and rollback checks. The current
-repository head is `20261011_0007`, which adds delivery tracking source labels.
-Run `python -m alembic current` and `python -m alembic heads` before deployment;
-operational Neon was not modified during the recorded inventory validation.
+On 2026-10-17 the full migration chain was applied from an empty PostgreSQL 16
+database through `20261017_0009`. It was downgraded to `20261012_0008` and
+upgraded back to head. A separate PostgreSQL concurrency test verified that
+only one retailer and one rider win simultaneous claims. Earlier isolated
+inventory verification covered actor audit, confirmation replay, adjustment
+safety, store isolation, and rollback. Run `python -m alembic current` and
+`python -m alembic heads` before deployment; operational Neon was not modified.

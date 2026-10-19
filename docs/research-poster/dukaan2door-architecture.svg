@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="1800" viewBox="0 0 3000 1800" role="img" aria-labelledby="title description">
+  <title id="title">Dukaan2Door System Architecture</title>
+  <desc id="description">Compact three-column architecture showing user interfaces, the FastAPI backend, PostgreSQL, Mapbox and OSRM with essential REST, WebSocket, database, map and route connections.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M1,1 L11,6 L1,11 Z" fill="#801c1c"/>
+    </marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; letter-spacing: 0; }
+      .diagram-title { font-size: 58px; font-weight: 700; fill: #801c1c; }
+      .section-title { font-size: 28px; font-weight: 700; fill: #ffffff; }
+      .box-title { font-size: 30px; font-weight: 700; fill: #243247; }
+      .box-subtitle { font-size: 23px; font-weight: 400; fill: #536174; }
+      .footer { font-size: 24px; font-weight: 700; fill: #536174; }
+      .connector-label { font-size: 22px; font-weight: 700; fill: #801c1c; }
+      .caption { font-size: 24px; font-weight: 600; fill: #536174; }
+    </style>
+  </defs>
+
+  <rect width="3000" height="1800" fill="#ffffff"/>
+  <text x="1500" y="88" text-anchor="middle" class="diagram-title">Dukaan2Door — System Architecture</text>
+  <line x1="920" y1="122" x2="2080" y2="122" stroke="#801c1c" stroke-width="3"/>
+
+  <rect x="120" y="250" width="760" height="1250" rx="10" fill="#f4f6f8" stroke="#aab4c0" stroke-width="3"/>
+  <rect x="1120" y="250" width="760" height="1250" rx="10" fill="#f4f6f8" stroke="#aab4c0" stroke-width="3"/>
+  <rect x="2120" y="250" width="760" height="1250" rx="10" fill="#f4f6f8" stroke="#aab4c0" stroke-width="3"/>
+  <path d="M130 250 H870 Q880 250 880 260 V345 H120 V260 Q120 250 130 250 Z" fill="#801c1c"/>
+  <path d="M1130 250 H1870 Q1880 250 1880 260 V345 H1120 V260 Q1120 250 1130 250 Z" fill="#801c1c"/>
+  <path d="M2130 250 H2870 Q2880 250 2880 260 V345 H2120 V260 Q2120 250 2130 250 Z" fill="#801c1c"/>
+  <text x="500" y="310" text-anchor="middle" class="section-title">USER INTERFACES</text>
+  <text x="1500" y="310" text-anchor="middle" class="section-title">FASTAPI BACKEND</text>
+  <text x="2500" y="310" text-anchor="middle" class="section-title">DATA &amp; EXTERNAL SERVICES</text>
+
+  <g id="customer-portal">
+    <rect x="190" y="430" width="620" height="190" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="500" y="510" text-anchor="middle" class="box-title">Customer Portal</text>
+    <text x="500" y="558" text-anchor="middle" class="box-subtitle">Browse • Checkout • Track</text>
+  </g>
+  <g id="retailer-portal">
+    <rect x="190" y="735" width="620" height="190" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="500" y="815" text-anchor="middle" class="box-title">Retailer Portal</text>
+    <text x="500" y="863" text-anchor="middle" class="box-subtitle">Inventory • Orders • Fulfillment</text>
+  </g>
+  <g id="delivery-portal">
+    <rect x="190" y="1040" width="620" height="190" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="500" y="1120" text-anchor="middle" class="box-title">Delivery Partner Portal</text>
+    <text x="500" y="1168" text-anchor="middle" class="box-subtitle">Claim • Pickup • Deliver</text>
+  </g>
+  <text x="500" y="1415" text-anchor="middle" class="footer">React + TypeScript</text>
+
+  <g id="authentication">
+    <rect x="1190" y="395" width="620" height="155" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="1500" y="488" text-anchor="middle" class="box-title">Authentication</text>
+  </g>
+  <g id="catalog-matching">
+    <rect x="1190" y="600" width="620" height="155" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="1500" y="664" text-anchor="middle" class="box-title">Catalog &amp; Store Matching</text>
+    <text x="1500" y="710" text-anchor="middle" class="box-subtitle">Availability-based selection</text>
+  </g>
+  <g id="inventory-orders">
+    <rect x="1190" y="805" width="620" height="155" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="1500" y="869" text-anchor="middle" class="box-title">Inventory &amp; Order Management</text>
+    <text x="1500" y="915" text-anchor="middle" class="box-subtitle">Stock and order lifecycle</text>
+  </g>
+  <g id="delivery-assignment">
+    <rect x="1190" y="1010" width="620" height="155" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="1500" y="1074" text-anchor="middle" class="box-title">Delivery Assignment</text>
+    <text x="1500" y="1120" text-anchor="middle" class="box-subtitle">Eligible rider claim</text>
+  </g>
+  <g id="realtime-tracking">
+    <rect x="1190" y="1215" width="620" height="155" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="1500" y="1279" text-anchor="middle" class="box-title">Real-Time Tracking</text>
+    <text x="1500" y="1325" text-anchor="middle" class="box-subtitle">Location and status updates</text>
+  </g>
+
+  <g id="postgresql">
+    <rect x="2190" y="430" width="620" height="220" rx="7" fill="#eaf0f5" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="2500" y="520" text-anchor="middle" class="box-title">PostgreSQL (Neon)</text>
+    <text x="2500" y="570" text-anchor="middle" class="box-subtitle">Application data</text>
+  </g>
+  <g id="mapbox">
+    <rect x="2190" y="760" width="620" height="220" rx="7" fill="#ffffff" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="2500" y="850" text-anchor="middle" class="box-title">Mapbox GL JS</text>
+    <text x="2500" y="900" text-anchor="middle" class="box-subtitle">Browser map rendering</text>
+  </g>
+  <g id="osrm">
+    <rect x="2190" y="1090" width="620" height="220" rx="7" fill="#ffffff" stroke="#8fa1b2" stroke-width="3"/>
+    <text x="2500" y="1180" text-anchor="middle" class="box-title">OSRM Routing</text>
+    <text x="2500" y="1230" text-anchor="middle" class="box-subtitle">Road route calculation</text>
+  </g>
+
+  <path d="M880 840 H1120" fill="none" stroke="#801c1c" stroke-width="5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="900" y="786" width="200" height="38" fill="#ffffff"/>
+  <text x="1000" y="813" text-anchor="middle" class="connector-label">REST APIs</text>
+
+  <path d="M1120 1240 H920 V1030 H880" fill="none" stroke="#801c1c" stroke-width="5" stroke-dasharray="13 10" marker-end="url(#arrow)"/>
+  <rect x="938" y="1092" width="165" height="38" fill="#ffffff"/>
+  <text x="1020" y="1119" text-anchor="middle" class="connector-label">WebSocket</text>
+
+  <path d="M1880 540 H2120" fill="none" stroke="#801c1c" stroke-width="5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="1895" y="486" width="210" height="38" fill="#ffffff"/>
+  <text x="2000" y="513" text-anchor="middle" class="connector-label">Database</text>
+
+  <path d="M500 430 V190 H2940 V870 H2810" fill="none" stroke="#801c1c" stroke-width="5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="1370" y="162" width="260" height="38" fill="#ffffff"/>
+  <text x="1500" y="189" text-anchor="middle" class="connector-label">Map Rendering</text>
+
+  <path d="M1880 1200 H2120" fill="none" stroke="#801c1c" stroke-width="5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="1890" y="1146" width="220" height="38" fill="#ffffff"/>
+  <text x="2000" y="1173" text-anchor="middle" class="connector-label">Route Requests</text>
+
+  <text x="1500" y="1695" text-anchor="middle" class="caption">Fig. 1 — System Architecture of Dukaan2Door</text>
+</svg>

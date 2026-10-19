@@ -142,6 +142,7 @@ def main() -> int:
                     "delivery_address": "Satellite Test Address, Ahmedabad",
                     "delivery_lat": CUSTOMER_LOCATION[0],
                     "delivery_lng": CUSTOMER_LOCATION[1],
+                    "checkout_token": f"story-{story_id}",
                 },
             ),
             201,
@@ -149,8 +150,8 @@ def main() -> int:
         )
         order_id = order["id"]
         assert order["status"] == "RECEIVED"
-        assert order["store_id"] == product["store_id"]
-        print(f"4/10 customer order created and matched to store #{order['store_id']}")
+        assert order["store_id"] is None
+        print("4/10 customer order created with retailer acceptance pending")
 
         for next_status in ("ACCEPTED", "PREPARING", "READY_FOR_PICKUP"):
             order = expect(
@@ -163,12 +164,13 @@ def main() -> int:
                 f"retailer status {next_status}",
             )
             assert order["status"] == next_status
+        assert order["store_id"] == product["store_id"]
         print("5/10 retailer accepted, prepared, and marked the order ready")
 
         assignment = expect(
-            client.post(f"/api/deliveries/{order_id}/assign", headers=auth(retailer_token)),
+            client.post(f"/api/deliveries/available-orders/{order_id}/claim", headers=auth(partner_token)),
             200,
-            "assign delivery partner",
+            "delivery partner claim",
         )
         delivery = assignment["delivery"]
         delivery_id = delivery["id"]

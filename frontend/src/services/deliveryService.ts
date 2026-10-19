@@ -53,6 +53,13 @@ export const deliveryService = {
     return apiRequest<Order[]>('/api/deliveries/available-orders');
   },
 
+  async declineAvailableOrder(orderId: number, reason = 'Declined by delivery partner'): Promise<{ order_id: number; declined: boolean; available_to_other_riders: boolean }> {
+    return apiRequest(`/api/deliveries/available-orders/${orderId}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
   async claimAvailableOrder(orderId: number): Promise<{ assigned: boolean; delivery: Delivery; distance_km?: number }> {
     return apiRequest<{ assigned: boolean; delivery: Delivery; distance_km?: number }>(`/api/deliveries/available-orders/${orderId}/claim`, {
       method: 'POST',

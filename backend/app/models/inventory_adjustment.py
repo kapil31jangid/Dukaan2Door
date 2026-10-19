@@ -26,5 +26,6 @@ class InventoryAdjustment(Base):
     quantity_after: Mapped[int] = mapped_column(Integer, nullable=False)
     source: Mapped[str] = mapped_column(String(40), nullable=False)
     batch_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    actor_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     note: Mapped[Optional[str]] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)

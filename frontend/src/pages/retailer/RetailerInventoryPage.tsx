@@ -37,8 +37,6 @@ export const RetailerInventoryPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
-  const [editingStockId, setEditingStockId] = useState<number | null>(null);
-  const [stockInput, setStockInput] = useState<number>(0);
 
   const fetchProducts = async () => {
     setIsLoading(true);
@@ -99,22 +97,6 @@ export const RetailerInventoryPage: React.FC = () => {
       setNotice(`${product.name} is now ${updated.is_available ? 'in stock & available' : 'marked out of stock'}`);
     } catch (err: any) {
       setError(err.message || 'Failed to toggle availability');
-    }
-  };
-
-  const handleSaveStock = async (productId: number) => {
-    try {
-      const product = products.find((p) => p.id === productId);
-      if (!product) return;
-      const updated = await retailerService.patchProductAvailability(productId, {
-        is_available: product.is_available,
-        quantity: stockInput,
-      });
-      setProducts((prev) => prev.map((p) => (p.id === productId ? updated : p)));
-      setEditingStockId(null);
-      setNotice(`Stock updated for ${product.name}`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to update stock');
     }
   };
 
@@ -328,48 +310,19 @@ export const RetailerInventoryPage: React.FC = () => {
                         ₹{product.price.toFixed(2)}
                       </td>
                       <td data-label="Stock" className="px-5 py-3.5 text-center">
-                        {editingStockId === product.id ? (
-                          <div className="inline-flex items-center gap-1.5">
-                            <input
-                              type="number"
-                              min="0"
-                              aria-label={`Stock for ${product.name}`}
-                              value={stockInput}
-                              onChange={(e) => setStockInput(parseInt(e.target.value) || 0)}
-                              className="w-16 px-2 py-1 text-xs border rounded-lg text-center"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => handleSaveStock(product.id)}
-                              className="text-xs text-emerald-600 font-bold hover:underline"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={() => setEditingStockId(null)}
-                              className="text-xs text-slate-400 hover:underline"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setEditingStockId(product.id);
-                              setStockInput(product.quantity);
-                            }}
-                            className={`font-bold px-2.5 py-1 rounded-lg border text-xs transition-colors hover:border-emerald-300 ${
-                              product.quantity > product.low_stock_threshold
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : product.quantity > 0
-                                ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                : 'bg-rose-50 text-rose-800 border-rose-200'
-                            }`}
-                            title="Click to edit stock"
-                          >
-                            {product.quantity} {product.unit}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => setIsOnboardingOpen(true)}
+                          className={`font-bold px-2.5 py-1 rounded-lg border text-xs transition-colors hover:border-emerald-300 ${
+                            product.quantity > product.low_stock_threshold
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : product.quantity > 0
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-rose-50 text-rose-800 border-rose-200'
+                          }`}
+                          title="Open audited stock adjustment"
+                        >
+                          {product.quantity} {product.unit}
+                        </button>
                       </td>
                       <td data-label="Handling" className="px-5 py-3.5"><span className={`rounded-lg px-2 py-1 text-[10px] font-bold ${product.handling_type === 'FROZEN' ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>{product.handling_type}{product.requires_special_equipment ? ' equipment' : ''}</span>{product.quantity > 0 && product.quantity <= product.low_stock_threshold && <p className="mt-1 text-[10px] font-bold text-amber-700">Low stock</p>}</td>
                       <td data-label="Availability" className="px-5 py-3.5 text-center">
@@ -489,7 +442,7 @@ export const RetailerInventoryPage: React.FC = () => {
         isOpen={isOnboardingOpen}
         onClose={() => setIsOnboardingOpen(false)}
         products={products}
-        onConfirmed={(count) => { setNotice(`${count} product${count === 1 ? '' : 's'} added to inventory`); void fetchProducts(); }}
+        onConfirmed={(count) => { setNotice(`${count} inventory change${count === 1 ? '' : 's'} confirmed`); void fetchProducts(); }}
       />
     </div>
   );

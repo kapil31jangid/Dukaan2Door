@@ -46,6 +46,11 @@ def main() -> int:
         help="JSON manifest containing image paths and optional ground truth",
     )
     args = parser.parse_args()
+    if args.manifest.exists() and not args.manifest.is_file():
+        parser.error(
+            f"manifest must be a JSON file, not a directory: {args.manifest}. "
+            "Use benchmarks/inventory_ocr/manifest.json"
+        )
     if not args.manifest.is_file():
         parser.error(f"Manifest does not exist: {args.manifest}")
     payload = json.loads(args.manifest.read_text())

@@ -134,6 +134,38 @@ def test_gemini_result_parsed_and_structured():
     assert len(ocr_lines) == 2
 
 
+def test_product_photo_analysis_never_treats_one_package_or_mrp_as_inventory_values():
+    result = GeminiInventoryAnalysisResult(
+        document_type="SHELF_IMAGE",
+        products=[
+            GeminiProductCandidate(
+                product_name="Amul Butter",
+                brand="Amul",
+                quantity=1,
+                unit="pack",
+                size="100g",
+                unit_price=None,
+                printed_mrp=58,
+                category="Dairy & Bakery",
+                needs_review=False,
+            )
+        ],
+    )
+    client = MockGenAIClient(response=MockGenAIResponse(parsed=result))
+    items, _ = GeminiInventoryAnalyzer(api_key="test-key", client=client).analyze_product_photo(
+        make_png(),
+        "butter.png",
+        "image/png",
+    )
+
+    assert items[0].quantity is None
+    assert items[0].price is None
+    assert items[0].printed_mrp == 58
+    assert items[0].needs_review is True
+    assert any("not a stock count" in warning for warning in items[0].warnings)
+    assert "packaged products" in client.calls[0]["contents"][0]
+
+
 def test_document_warnings_are_not_copied_to_unrelated_product_rows():
     mock_result = GeminiInventoryAnalysisResult(
         document_type="HANDWRITTEN_LIST",

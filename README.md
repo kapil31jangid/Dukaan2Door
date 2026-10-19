@@ -16,7 +16,7 @@ Delivery partner self-claim · OSRM route planning · Real-time live tracking
 [![Routing](https://img.shields.io/badge/Routing-OSRM-FF6600.svg)](https://project-osrm.org/)
 [![Inventory AI](https://img.shields.io/badge/Inventory%20AI-Gemini-4285F4.svg)](https://ai.google.dev/gemini-api/docs)
 [![Migrations](https://img.shields.io/badge/Migrations-Alembic-4B8BBE.svg)](backend/alembic/)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-104%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/Backend%20Tests-118%20passed-brightgreen.svg)](#testing)
 [![WebSocket](https://img.shields.io/badge/Realtime-WebSockets-blueviolet.svg)](#real-time-tracking)
 
 </div>
@@ -52,10 +52,10 @@ Delivery partner self-claim · OSRM route planning · Real-time live tracking
 
 **Dukaan2Door** is a hyperlocal grocery and essentials delivery platform that
 connects customers with nearby local retailers. A customer selects products,
-shares a delivery location, and places an order. The backend selects an eligible
-store using distance and inventory checks, while retailer and delivery partner
-workflows move the order through fulfillment to delivery — all tracked in real
-time on an interactive map.
+shares a delivery location, and places an order. The backend offers one order to
+all stores in the active distance tier that can fill the complete cart; the
+first valid retailer acceptance wins. Retailer and delivery-partner workflows
+then move it through fulfillment to delivery, tracked on an interactive map.
 
 The platform is designed around a **direct local-store experience** rather than
 a large marketplace. Its public home routes customers, retailers, and delivery
@@ -87,15 +87,15 @@ partners to dedicated sign-in screens and protected role-specific portals.
                ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │  BACKEND                                                         │
-│  🏪 Match store (2km → 5km)  →  📦 Lock & decrement inventory   │
-│  ✅ Validate order            →  🔔 Notify retailer              │
+│  🏪 Find eligible stores (2km → 5km)  →  🔔 Create store offers  │
+│  ✅ Validate complete cart              →  🔒 First claim wins   │
 └──────────────┬───────────────────────────────────────────────────┘
                │
                ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │  RETAILER                                                        │
-│  📋 View incoming order  →  ✅ Accept order                      │
-│  👨‍🍳 Prepare order       →  📦 Mark ready for pickup             │
+│  📋 View shared opportunity → ✅ Accept or reject                 │
+│  🔒 Winner stock is deducted → 📦 Prepare and mark ready          │
 │  📷 Analyze and review stock separately with Gemini AI           │
 └──────────────┬───────────────────────────────────────────────────┘
                │
@@ -111,8 +111,9 @@ partners to dedicated sign-in screens and protected role-specific portals.
 **Order Lifecycle State Machine:**
 
 ```
-RECEIVED → ACCEPTED → PREPARING → READY_FOR_PICKUP → ASSIGNED
-         → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED
+Order:    RECEIVED → ACCEPTED → PREPARING → READY_FOR_PICKUP
+          → OUT_FOR_DELIVERY → DELIVERED
+Delivery: ASSIGNED → ACCEPTED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED
 ```
 
 ---
@@ -129,53 +130,38 @@ flowchart TB
 
     subgraph Backend["Backend (FastAPI + Python)"]
         Auth["JWT Auth & RBAC"]
-        OrderSvc["Order Service"]
-        MatchSvc["Store Matching Service"]
-        DeliverySvc["Delivery Service"]
-        RouteSvc["Routing Service (OSRM)"]
-        GeoSvc["Geo Service (Haversine)"]
-        ProductSvc["Product & Inventory Service"]
-        OCRSvc["Inventory Image Analyzer"]
-        Gemini["Gemini Structured Extraction"]
-        Paddle["Optional PaddleOCR Fallback"]
-        RealtimeSvc["Realtime Service"]
-        WS["WebSocket Hub"]
+        RetailerPool["Retailer Offer Pool"]
+        InventoryOrders["Inventory & Order Lifecycle"]
+        RiderPool["Rider Pool & Assignment"]
+        RouteTracking["Route Playback & Live Tracking"]
+        WS["Authenticated WebSocket Hub"]
     end
 
     subgraph External["External Services"]
-        OSRM["OSRM Routing Engine"]
-        GeminiAPI["Google Gemini API"]
-        Mapbox["Mapbox GL JS Tiles"]
-        Nominatim["Nominatim Geocoder"]
-        IPGeo["ipwho.is Geolocation"]
+        Gemini["Gemini + PaddleOCR Fallback"]
+        OSRM["OSRM Routing"]
+        Mapbox["Mapbox GL JS"]
     end
 
     DB[("PostgreSQL on Neon")]
 
-    Customer --> Auth
-    Retailer --> Auth
-    Partner --> Auth
-    Auth --> OrderSvc
-    Auth --> MatchSvc
-    Auth --> DeliverySvc
-    OrderSvc --> DB
-    MatchSvc --> DB
-    MatchSvc --> GeoSvc
-    DeliverySvc --> DB
-    DeliverySvc --> RouteSvc
-    RouteSvc --> OSRM
-    ProductSvc --> DB
-    Retailer --> OCRSvc
-    OCRSvc --> Gemini
-    Gemini --> GeminiAPI
-    OCRSvc -.->|"Provider fallback"| Paddle
-    OCRSvc --> ProductSvc
-    RealtimeSvc --> WS
-    WS -.->|"Live GPS"| Customer
-    WS -.->|"Status Updates"| Partner
-    Customer -.->|"Map Tiles"| Mapbox
-    Customer -.->|"Location"| Nominatim
-    Customer -.->|"IP Fallback"| IPGeo
+    Customer -->|"Authenticated order request"| RetailerPool
+    Retailer -->|"Offer, stock & fulfilment"| InventoryOrders
+    Partner -->|"Claim & delivery status"| RiderPool
+    Auth --> RetailerPool
+    Auth --> InventoryOrders
+    Auth --> RiderPool
+    RetailerPool -->|"First valid store acceptance"| InventoryOrders
+    InventoryOrders -->|"READY_FOR_PICKUP"| RiderPool
+    RiderPool -->|"Accepted trip"| RouteTracking
+    InventoryOrders -->|"Review-only image analysis"| Gemini
+    InventoryOrders -->|"Stock & orders"| DB
+    RiderPool -->|"Claims & status"| DB
+    RouteTracking -->|"Tracking history"| DB
+    RouteTracking -->|"Road route request"| OSRM
+    RouteTracking --> WS
+    WS -.->|"Live tracking events"| Customer
+    Customer -.->|"Browser map rendering"| Mapbox
 ```
 
 Explore the full runtime view in the
@@ -330,7 +316,7 @@ Dukaan2Door/
 | **Dashboard** | Order overview with status filters and quick actions |
 | **Order Management** | Accept, prepare, and mark orders ready for pickup |
 | **Delivery Dispatch** | Make ready orders available to eligible nearby delivery partners |
-| **Inventory Management** | Scan a bill/photo into editable drafts, add manually, review before confirmation, update store-scoped stock, and toggle availability |
+| **Inventory Management** | Scan bills/lists, identify product packaging, review catalog matches, and confirm audited add/reduce adjustments |
 | **Store Settings** | Business hours, store status toggle (open/closed) |
 | **Performance Analytics** | Order volume, revenue, and fulfillment metrics |
 | **Store Overview** | Map-based store location with delivery radius visualization |
@@ -344,7 +330,7 @@ Dukaan2Door/
 | Feature | Description |
 |---|---|
 | **Dashboard** | Active delivery with status controls, earnings summary |
-| **Available Orders** | Browse and claim orders ready for pickup |
+| **Available Orders** | Review, decline, or exclusively claim orders ready for pickup |
 | **Active Delivery** | Step-by-step delivery flow with map and route |
 | **GPS Broadcasting** | Browser GPS or road-based demo updates broadcast to the customer via WebSocket |
 | **Status Progression** | Accept → Pick Up → Out for Delivery → Delivered |
@@ -375,10 +361,10 @@ Dukaan2Door/
 |---|---|---|
 | **Auth** | `/api/auth` | Register, login, current user |
 | **Orders** | `/api/orders` | Create, list, status update, tracking, store details |
-| **Deliveries** | `/api/deliveries` | Claim/reject, accept, pickup, deliver, route, GPS tracking |
+| **Deliveries** | `/api/deliveries` | Claim/decline/reject, accept, pickup, deliver, route, GPS tracking |
 | **Products** | `/api/products` | Browse catalog, search, category filter, inventory |
 | **Retailers** | `/api/retailers` | Store profile, products, status toggle |
-| **Inventory** | `/api/retailer/inventory` | Analyze upload, confirm reviewed stock, manual entry, history |
+| **Inventory** | `/api/retailer/inventory` | Analyze bills/product photos, confirm reviewed stock, add/reduce, manual entry, history |
 | **Customers** | `/api/customers` | Profile, address, location |
 | **Partners** | `/api/delivery-partners` | Profile, availability, location update |
 | **Matching** | `/api/matching` | Find eligible store for coordinates + items |
@@ -392,18 +378,16 @@ Full interactive API docs available at `http://localhost:8080/docs` when the bac
 
 The delivery tracking system uses **authenticated WebSockets** for live updates:
 
-1. **Delivery partner** shares browser GPS coordinates or starts the controlled demo route
-2. **Backend** validates and relays position updates to connected clients
-3. **Customer** sees the same moving marker on a Mapbox map with an OSRM route overlay
-4. In local development, `OUT_FOR_DELIVERY` starts a clearly labelled OSRM
-   road-route demo playback from the rider's saved location to the customer
-5. Status changes (`PICKED_UP`, `OUT_FOR_DELIVERY`, `DELIVERED`) are broadcast
-   in real time
+1. After acceptance, the backend starts the rider-to-store leg on OSRM road geometry.
+2. The trip continues independently of the rider's active browser tab.
+3. At the store, pickup verification opens after a two-minute dwell.
+4. Marking the order picked up automatically starts the store-to-customer leg.
+5. The backend persists route points and broadcasts them to rider and customer maps.
+6. Delivery completion remains a deliberate rider action after arrival.
 
-The demo playback writes authorized tracking updates tagged
-`DEMO_SIMULATION`; it is never presented as real GPS. Production riders use
-browser GPS unless the deployed demo explicitly enables playback. Tracking
-never advances order status automatically.
+For real operations, route playback can remain disabled and the rider can share
+browser GPS. The controlled walkthrough uses source `ROUTE_PLAYBACK`; both modes
+use the same authenticated tracking, Mapbox rendering, and WebSocket pipeline.
 
 ```mermaid
 sequenceDiagram
@@ -442,10 +426,12 @@ sequenceDiagram
 | `order_items` | Line items with product, quantity, and price |
 | `delivery_partners` | Partner profiles, vehicle info, availability, coordinates |
 | `deliveries` | Delivery records linking orders to partners |
-| `delivery_tracking` | GPS/demo breadcrumb trail with source, timestamp, status, and accuracy |
+| `delivery_tracking` | GPS or server route-playback breadcrumb trail with source, timestamp, status, and accuracy |
 | `delivery_rejections` | Rider rejection history without cancelling the customer order |
+| `retailer_order_offers` | Store-specific pending/accepted/rejected/expired opportunities for one customer order |
+| `retailer_order_offer_items` | Exact product and inventory mapping used to revalidate each store offer |
 
-The current non-destructive Alembic head is `20261011_0007`.
+The current non-destructive Alembic head is `20261017_0009`.
 
 ### Data Ingestion Pipeline
 
@@ -546,6 +532,10 @@ npm run preview -- --host 0.0.0.0
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry in minutes | ✅ |
 | `CORS_ORIGINS` | Comma-separated allowed origins | ✅ |
 | `OSRM_BASE_URL` | OSRM server URL for routing | ✅ |
+| `ENABLE_ROUTE_PLAYBACK` | Run browser-independent OSRM route movement for a controlled walkthrough | Optional |
+| `ROUTE_PLAYBACK_SPEED_KMH` | Baseline route speed (default: `40`) | Optional |
+| `ROUTE_PLAYBACK_UPDATE_SECONDS` | Persisted tracking interval (default: `2.5`) | Optional |
+| `PICKUP_DWELL_SECONDS` | Required store wait before pickup confirmation (default: `120`) | Optional |
 | `GEMINI_API_KEY` | Server-only Gemini key for inventory document analysis | Required for Gemini |
 | `GEMINI_MODEL` | Gemini model ID (default: `gemini-2.5-flash-lite`) | Optional |
 | `PADDLE_OCR_DETECTION_MODEL` | Detection model (default: `PP-OCRv6_small_det`) | Optional |
@@ -566,12 +556,16 @@ the provider-neutral analyzer can fall back to local
 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) for quota and transient
 provider errors. Neither path writes inventory directly.
 
-Retailers can open **Inventory** and select **Add Inventory**. A JPG, PNG, WEBP,
-or PDF (maximum 5 MB) is processed by Gemini; the optional Paddle provider
-supports JPG, PNG, and PDF. Detected rows are drafts: the retailer can edit or
-remove each row before **Confirm and add inventory** writes anything to the
-catalogue. If analysis cannot read an image, the retailer can use the manual
-entry path; no sample inventory is generated.
+Retailers can open **Inventory** and select **Add Inventory**. The modal keeps
+three explicit workflows: upload a bill/stock list, scan one or more product
+packages, or adjust an existing product without an image. Manual product entry
+remains available.
+
+A JPG, PNG, WEBP, or PDF bill/list (maximum 5 MB) is processed by Gemini; the
+optional Paddle provider supports JPG, PNG, and PDF. Product-photo analysis
+accepts JPG, PNG, or WEBP and returns packaging evidence plus deterministic
+store-catalog candidates. A single visible package is never treated as the
+stock quantity, and printed MRP is not treated as the selling price.
 
 ```text
 Retailer upload
@@ -583,6 +577,15 @@ Retailer upload
   -> confirmed inventory transaction
 ```
 
+```text
+Product photo
+  -> packaging evidence and catalog candidates
+  -> exact retailer-selected product and pack size
+  -> explicit Add or Reduce direction, quantity, and reason
+  -> current-stock and expected-stock preview
+  -> idempotent locked adjustment transaction and audit record
+```
+
 The backend validates the MIME type, extension, file size, image integrity,
 dimensions, and PDF page count first. The local provider applies EXIF
 orientation and bounded resizing; optional preprocessing comparison adds
@@ -591,7 +594,11 @@ lazily once per backend process and guarded for thread-safe inference.
 Handwriting remains best effort; low-confidence or incomplete rows are
 highlighted for review.
 
-Confirmed stock is store-specific. Exact reviewed name-and-brand matches increase the existing inventory row; otherwise a new product is created after confirmation. Every manual/image-assisted increase and existing order decrement is recorded in inventory adjustment history.
+Confirmed stock is store-specific. Bill/list confirmation may use the authorized
+product-creation path. Product-photo adjustments require an existing catalog
+match and cannot create products. Additions, reductions, legacy quantity edits,
+manual/image-assisted increases, and order decrements are recorded in inventory
+adjustment history; retailer-authored changes include the authorized user.
 
 ### Measured local fallback profile
 
@@ -616,14 +623,20 @@ to this repository, so real-bill and neat/poor-handwriting accuracy remains
 unmeasured. Add private samples to the ignored benchmark directory and run the
 benchmark tool before making those claims.
 
-To inspect OCR output and processing time for a real image from the repository root:
+To verify the tools with the committed benchmark fixture from the repository
+root, run:
 
 ```bash
 source backend/.venv/bin/activate
-python scripts/test_paddle_ocr.py /path/to/real-bill.jpg
-python scripts/test_gemini_inventory.py /path/to/real-bill.jpg
+python scripts/test_paddle_ocr.py benchmarks/inventory_ocr/images/01_clean_receipt.png
+python scripts/test_gemini_inventory.py benchmarks/inventory_ocr/images/01_clean_receipt.png
 python scripts/benchmark_gemini_inventory.py benchmarks/inventory_ocr/manifest.json
 ```
+
+Replace the sample image path with an actual sanitized bill only after adding
+that file locally. The benchmark command requires the JSON manifest file, not
+the `benchmarks/` directory. Gemini commands also require `GEMINI_API_KEY` in
+the backend environment; PaddleOCR requires its optional local packages.
 
 ### Frontend (`frontend/.env`)
 
@@ -633,8 +646,7 @@ python scripts/benchmark_gemini_inventory.py benchmarks/inventory_ocr/manifest.j
 | `VITE_WS_URL` | Backend WebSocket base URL | ✅ |
 | `VITE_MAPBOX_TOKEN` | Mapbox public token for map tiles | Optional |
 | `VITE_CUSTOMER_STORE_ID` | Operational store ID exposed in the single-store customer catalog | ✅ |
-| `VITE_ENABLE_DEMO_ROUTE_PLAYBACK` | Enable labelled OSRM route playback in a deployed demo; local Vite development enables it automatically | Optional |
-| `VITE_DEMO_ROUTE_DURATION_SECONDS` | Customer-bound demo playback duration, clamped to 15–180 seconds (default: `45`) | Optional |
+| `VITE_ENABLE_ROUTE_PLAYBACK` | Use backend-owned route tracking instead of browser GPS | Optional |
 
 ---
 
@@ -646,15 +658,19 @@ python scripts/benchmark_gemini_inventory.py benchmarks/inventory_ocr/manifest.j
 |---|---|---|
 | 🛍️ Customer | `rahul@example.com` | `DemoPassword123!` |
 | 🏪 Retailer | `satellite.retailer.rahul@example.com` | `DemoPassword123!` |
+| 🏪 Retailer | `satellite.retailer.neha@example.com` | `DemoPassword123!` |
+| 🏪 Retailer | `satellite.retailer.priya@example.com` | `DemoPassword123!` |
+| 🚴 Delivery Partner | `satellite.rider.rahul@example.com` | `DemoPassword123!` |
 | 🚴 Delivery Partner | `satellite.rider.arjun.3km@example.com` | `DemoPassword123!` |
+| 🚴 Delivery Partner | `satellite.rider.meera@example.com` | `DemoPassword123!` |
 
 ### End-to-End Demo Flow
 
 ```
 1. Customer logs in → browses products → adds to cart → checks out
-2. Retailer sees new order → accepts → prepares → marks ready for pickup
-3. Ready order becomes visible to eligible nearby delivery partners
-4. An eligible delivery partner claims the ready order → accepts → picks up order
+2. Three eligible retailers see the same shared request → first acceptance wins
+3. Winning retailer prepares the order → marks ready for pickup
+4. Three eligible delivery partners see the same ready order → first claim wins
 5. Partner starts route → marks Out for Delivery → GPS tracking begins
 6. Customer watches live map with moving delivery marker
 7. Partner arrives → marks Delivered → order complete ✅
@@ -664,11 +680,15 @@ python scripts/benchmark_gemini_inventory.py benchmarks/inventory_ocr/manifest.j
 
 ```bash
 python scripts/seed_dashboard_accounts.py --allow-remote
-python scripts/seed_satellite_catalog.py --allow-remote
+python scripts/seed_satellite_catalog.py --allow-remote --restock
 ```
 
-See [Testing Users and Flow](docs/testing-users-and-flow.md) for the full
-credential table and step-by-step browser walkthrough.
+`--restock` only resets inventory in the three allowlisted Satellite demo
+stores. Use separate browser profiles for the three retailer and three rider
+accounts to demonstrate both shared pools and the first-accept conflict.
+
+See the [Complete Demo Story](docs/demo/dukaan2door-story-testing-guide.md) for
+the credential table and step-by-step browser walkthrough.
 
 ---
 
@@ -681,7 +701,8 @@ cd backend
 python -m pytest -q
 ```
 
-**Current verified result:** `104 passed`
+**Current verified result:** `122 passed, 1 PostgreSQL-only test skipped`; the
+PostgreSQL race test passed separately against a disposable PostgreSQL 16 database.
 
 Test coverage includes:
 - API endpoint validation
@@ -690,8 +711,9 @@ Test coverage includes:
 - Backend integration workflows
 - Security checks
 - Gemini extraction/error handling and PaddleOCR fallback parsing
-- Inventory review/confirmation safety and duplicate stock updates
-- Rider claim locking, rejection, and special-equipment eligibility
+- Product-photo catalog matching and review-only analysis
+- Inventory add/reduce safety, audit history, and idempotent confirmation
+- Rider claim locking, offer decline/rejection, and special-equipment eligibility
 
 ### OCR-Specific Tests
 
@@ -704,6 +726,15 @@ python -m pytest tests/test_inventory_ocr.py -q
 
 **Result:** `17 passed`
 
+Gemini-focused validation:
+
+```bash
+cd backend
+python -m pytest tests/test_gemini_inventory_analyzer.py -q
+```
+
+**Result:** `23 passed`
+
 ### Frontend Validation
 
 Run the focused frontend regression suite and production build:
@@ -714,7 +745,7 @@ npm test
 npm run build
 ```
 
-**Current verified result:** `12 passed`; TypeScript and Vite build passed.
+**Current verified result:** `23 passed`; TypeScript and Vite build passed.
 
 ### Compile Check
 
@@ -803,13 +834,21 @@ is deliberately extended with the optional CPU packages.
 | 📚 [Documentation Hub](docs/README.md) | Central index and navigation hub for all project documentation |
 | 🗺️ [Interactive Runtime Architecture](docs/dukaan2door-architecture.html) | Current frontend, backend, database, external services, trust boundaries, and primary runtime path |
 | 🚀 [Deployment Guide](docs/deployment-guide.md) | Production setup for Render, Neon, Vercel, and OSRM |
-| 🧪 [Testing Guide](docs/testing-guide.md) | Step-by-step parallel manual test walkthrough |
-| 👥 [Testing Users & Story](docs/testing-users-and-flow.md) | Demo account credentials and automated API test flow |
+| 🎬 [Complete Demo Story](docs/demo/dukaan2door-story-testing-guide.md) | Setup, user stories, pooling matrix, and faculty presentation script |
+| 🏪 [Multi-Retailer Testing](docs/demo/multi-retailer-testing-guide.md) | Three-vendor fan-out, first acceptance, stock, and isolation checks |
+| 🚴 [Multi-Rider Testing](docs/demo/multi-rider-testing-guide.md) | Three-rider fan-out, first claim, eligibility, and tracking checks |
 | 🧭 [Neon Migration Runbook](docs/neon-migration-runbook.md) | Controlled migration, verification, and recovery steps |
 | 🤖 [Gemini Demo Readiness](docs/gemini-demo-readiness.md) | Quota, fallback, privacy, and pre-demo checks |
 | 📍 [Live Tracking Validation](docs/live-tracking-validation.md) | Two-device real-GPS acceptance procedure |
-| 🛣️ [Rider GPS and Routing](docs/rider-gps-routing-fix.md) | Current GPS pipeline, route alignment, and labelled local demo playback |
+| ✅ [Complete Workflow Audit](docs/audits/dukaan2door-complete-workflow-audit.md) | Evidence-based order, retailer, rider, inventory, tracking, and readiness audit |
+| 🧾 [API Verification Matrix](docs/audits/api-verification-matrix.md) | Actual endpoint inventory, authorization, data ownership, and test status |
+| 🗄️ [Database Integrity Report](docs/audits/database-integrity-report.md) | Migration, row-lock, idempotency, and inventory transaction verification |
+| 📡 [Rider Tracking Verification](docs/audits/rider-tracking-verification.md) | GPS, OSRM, Mapbox, WebSocket snapshot, and demo-mode evidence |
+| 🎓 [Faculty Demo Checklist](docs/audits/faculty-demo-checklist.md) | Reproducible three-role demonstration and failure checklist |
 | 📊 [Data Ingestion Pipeline](docs/data-ingestion.md) | External dataset staging, provenance, and data cleaning |
+| 💼 [Business Model](docs/business-model.md) | Commercial hypotheses, unit economics, canvas, and validation plan |
+| ✅ [Faculty Feedback Resolution](docs/faculty-feedback-resolution.md) | Evidence and limitations for all eight faculty comments |
+| 📝 [Survey Package](docs/survey/survey-methodology.md) | Consent-ready questionnaires, collection method, templates, and analysis workflow |
 
 ---
 

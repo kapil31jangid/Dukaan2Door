@@ -1,5 +1,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const REQUEST_TIMEOUT_MS = 15000;
+const TOKEN_KEY = 'd2d_access_token';
 
 export function resolveAssetUrl(value?: string | null): string | null {
   if (!value) return null;
@@ -20,15 +21,20 @@ export class ApiError extends Error {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem('d2d_access_token');
+  return sessionStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem('d2d_access_token', token);
+  // A demo commonly opens customer, retailer, and rider accounts in separate
+  // tabs. Per-tab storage prevents one login from silently replacing another
+  // tab's API identity while its header still shows the previous user.
+  sessionStorage.setItem(TOKEN_KEY, token);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 export function removeToken(): void {
-  localStorage.removeItem('d2d_access_token');
+  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 interface RequestOptions extends RequestInit {

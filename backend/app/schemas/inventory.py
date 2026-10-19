@@ -21,6 +21,7 @@ class GeminiProductCandidate(BaseModel):
     size: Optional[str] = Field(default=None, description="Package size or weight (e.g. 500ml, 1kg, 250g, 70g)")
     unit_price: Optional[float] = Field(default=None, description="Unit rate or selling price per item, float >= 0, null if missing")
     total_price: Optional[float] = Field(default=None, description="Total amount or line total, float >= 0, null if missing")
+    printed_mrp: Optional[float] = Field(default=None, description="Printed MRP visible on product packaging, null if missing or unreadable")
     category: Optional[str] = Field(default=None, description="One of: Groceries, Snacks & Packaged Foods, Beverages, Dairy & Bakery, Fruits & Vegetables, Household Cleaning, Personal Care, Baby Care, Pooja & Daily Essentials, Frozen, Other Kirana")
     handling_requirement: Optional[str] = Field(default=None, description="One of: NORMAL, FROZEN, PERISHABLE, FRAGILE")
     needs_review: bool = Field(default=False, description="True if any critical detail (name, qty, price) is ambiguous, handwritten poorly, or uncertain")
@@ -42,6 +43,7 @@ class ExtractedInventoryItem(BaseModel):
     size: Optional[str] = Field(default=None, max_length=60)
     price: Optional[float] = Field(default=None, gt=0)
     total_price: Optional[float] = Field(default=None, gt=0)
+    printed_mrp: Optional[float] = Field(default=None, gt=0)
     category: Optional[str] = Field(default=None, max_length=120)
     expiry_date: Optional[date] = None
     handling_type: Optional[HandlingType] = None
@@ -51,6 +53,17 @@ class ExtractedInventoryItem(BaseModel):
     review_reason: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     possible_existing_product_id: Optional[int] = None
+    catalog_matches: list["CatalogMatchCandidate"] = Field(default_factory=list)
+
+
+class CatalogMatchCandidate(BaseModel):
+    product_id: int
+    name: str
+    brand: Optional[str] = None
+    unit: str
+    current_stock: int
+    price: float
+    match_reason: str
 
 
 class OCRTextLineResponse(BaseModel):
@@ -68,6 +81,7 @@ class InventoryAnalysisResponse(BaseModel):
     document_type: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
     ocr_lines: list[OCRTextLineResponse] = Field(default_factory=list)
+    analysis_mode: Literal["DOCUMENT", "PRODUCT_PHOTO"] = "DOCUMENT"
 
 
 class InventoryConfirmItem(BaseModel):
@@ -127,5 +141,43 @@ class InventoryAdjustmentResponse(BaseModel):
     delta: int
     quantity_after: int
     source: str
+    batch_id: Optional[str] = None
     note: Optional[str] = None
+    actor_user_id: Optional[int] = None
     created_at: datetime
+
+
+InventoryAdjustmentDirection = Literal["ADD", "REDUCE"]
+InventoryAdjustmentReason = Literal[
+    "NEW_STOCK_RECEIVED",
+    "OFFLINE_SALE",
+    "DAMAGED_PRODUCT",
+    "EXPIRED_PRODUCT",
+    "MANUAL_CORRECTION",
+]
+
+
+class InventoryStockAdjustmentRequest(BaseModel):
+    product_id: int = Field(..., ge=1)
+    direction: InventoryAdjustmentDirection
+    quantity: int = Field(..., ge=1, le=100000)
+    reason: InventoryAdjustmentReason
+    source: Literal["PRODUCT_PHOTO", "MANUAL_ADJUSTMENT"] = "MANUAL_ADJUSTMENT"
+    confirmation_id: str = Field(
+        ...,
+        min_length=8,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+        description="Client-generated key reused when retrying this exact adjustment.",
+    )
+
+
+class InventoryStockAdjustmentResult(BaseModel):
+    product_id: int
+    inventory_id: int
+    direction: InventoryAdjustmentDirection
+    quantity: int
+    reason: InventoryAdjustmentReason
+    quantity_before: int
+    quantity_after: int
+    confirmation_id: str

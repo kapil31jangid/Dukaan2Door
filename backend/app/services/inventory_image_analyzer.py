@@ -93,3 +93,44 @@ class InventoryImageAnalyzer:
             logger.warning("Gemini inventory analysis failed; using local PaddleOCR fallback")
             self.provider_name = "PaddleOCR (fallback)"
             return self._analyze_with_ocr(content, filename, content_type)
+
+    def analyze_product_photo(
+        self,
+        content: bytes,
+        filename: str,
+        content_type: str,
+    ) -> tuple[list[ExtractedInventoryItem], list[OCRTextLine]]:
+        if not self._use_gemini:
+            items, lines = self._analyze_with_ocr(content, filename, content_type)
+        else:
+            try:
+                method = getattr(self.gemini_analyzer, "analyze_product_photo", None)
+                if method is None:
+                    method = self.gemini_analyzer.analyze
+                items, lines = method(content, filename, content_type)
+            except HTTPException as exc:
+                if exc.status_code not in {
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    status.HTTP_502_BAD_GATEWAY,
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    status.HTTP_504_GATEWAY_TIMEOUT,
+                }:
+                    raise
+                logger.warning("Gemini product-photo analysis failed; using local PaddleOCR fallback")
+                self.provider_name = "PaddleOCR (fallback)"
+                items, lines = self._analyze_with_ocr(content, filename, content_type)
+
+        for item in items:
+            item.needs_review = True
+            if item.price is not None and item.printed_mrp is None:
+                item.printed_mrp = item.price
+            item.price = None
+            if item.quantity == 1:
+                item.quantity = None
+            message = "Product-photo results are review-only. Select a catalogue match and enter the stock adjustment quantity."
+            if message not in item.warnings:
+                item.warnings.append(message)
+            if not item.review_reason:
+                item.review_reason = message
+        return items, lines

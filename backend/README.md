@@ -231,7 +231,7 @@ With the local API running on port `8080`, run from the repository root:
 python scripts/run_story.py
 ```
 
-This safe local story verifies customer ordering and store matching, retailer acceptance and preparation, partner acceptance and pickup, GPS tracking with accuracy, delivery completion, and role-scoped order visibility. The runner never resets or deletes data and refuses non-local URLs unless `--allow-remote` is supplied. The full manual three-screen walkthrough is in the [Testing Guide](../docs/testing-guide.md).
+This safe local story verifies customer ordering and store matching, retailer acceptance and preparation, partner acceptance and pickup, GPS tracking with accuracy, delivery completion, and role-scoped order visibility. The runner never resets or deletes data and refuses non-local URLs unless `--allow-remote` is supplied. The full manual multi-session walkthrough is in the [Complete Demo Story](../docs/demo/dukaan2door-story-testing-guide.md).
 
 Events:
 
@@ -281,7 +281,10 @@ python -m pytest -q
 Current verified result:
 
 ```text
-104 passed
+122 passed, 1 PostgreSQL-only test skipped
 ```
 
-Test coverage includes authentication, authorization, coordinate validation, 2 km matching, 5 km fallback, inventory-aware matching, order creation, inventory decrement behavior, delivery assignment, delivery state transitions, routing failures, WebSockets, tracking authorization, saved-location fallback, delivery partner availability, and full lifecycle completion.
+Test coverage includes authentication, authorization, coordinate validation,
+multi-retailer offers, inventory-aware matching, transactional stock changes,
+exclusive rider claims, delivery state transitions, OSRM routing, WebSockets,
+tracking authorization, arrival enforcement, and full lifecycle completion.

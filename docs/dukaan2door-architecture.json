@@ -2,231 +2,345 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Dukaan2Door Runtime Architecture",
+    "title": "Dukaan2Door Operational Architecture",
     "output": "docs/dukaan2door-architecture.html",
     "quality_profile": "showcase",
-    "repository": {
-      "url": "https://github.com/kapil31jangid/Dukaan2Door.git",
-      "provider": "github",
-      "link_mode": "web",
-      "revision": "cd02d4997bcd4a8585be0635ed0ef5983e3f5c66"
-    }
+    "visual_preset": "blueprint"
   },
   "components": [
     {
-      "id": "users",
-      "type": "external",
-      "label": "Platform Users",
-      "sublabel": "Customer | Retailer | Rider",
-      "pos": [40, 300],
-      "size": [145, 64],
-      "sources": [
-        { "path": "frontend/src/App.tsx", "line": 86, "end_line": 157, "label": "Role routes" }
-      ]
-    },
-    {
-      "id": "role_spa",
+      "id": "customer",
       "type": "frontend",
-      "label": "React Role Portals",
-      "sublabel": "React + TypeScript + Vite",
-      "tag": "Single SPA",
-      "pos": [255, 300],
-      "size": [165, 64],
-      "sources": [
-        { "path": "frontend/src/App.tsx", "line": 83, "end_line": 162, "label": "SPA routing" },
-        { "path": "frontend/src/services/api.ts", "line": 38, "end_line": 79, "label": "API client" }
+      "label": "Customer Portal",
+      "sublabel": "browse, checkout, live tracking",
+      "pos": [
+        50,
+        90
+      ],
+      "size": [
+        190,
+        76
       ]
     },
     {
-      "id": "fastapi",
+      "id": "retailer",
+      "type": "frontend",
+      "label": "Retailer Portal",
+      "sublabel": "offers, stock, fulfilment",
+      "pos": [
+        430,
+        90
+      ],
+      "size": [
+        190,
+        76
+      ]
+    },
+    {
+      "id": "rider",
+      "type": "frontend",
+      "label": "Delivery Partner",
+      "sublabel": "claim, pickup, completion",
+      "pos": [
+        810,
+        90
+      ],
+      "size": [
+        190,
+        76
+      ]
+    },
+    {
+      "id": "retailer_pool",
       "type": "backend",
-      "label": "FastAPI Gateway",
-      "sublabel": "REST APIs + static uploads",
-      "tag": "/api",
-      "pos": [495, 300],
-      "size": [160, 64],
-      "sources": [
-        { "path": "backend/app/main.py", "line": 12, "end_line": 35, "label": "App entry" },
-        { "path": "backend/app/api/v1/api.py", "line": 17, "end_line": 29, "label": "Router registry" }
+      "label": "Retailer Offer Pool",
+      "sublabel": "stock-qualified stores; first accept",
+      "pos": [
+        40,
+        330
+      ],
+      "size": [
+        205,
+        82
       ]
     },
     {
-      "id": "rbac",
-      "type": "security",
-      "label": "JWT Auth & RBAC",
-      "sublabel": "Identity + role enforcement",
-      "tag": "Bearer token",
-      "pos": [495, 110],
-      "size": [160, 64],
-      "sources": [
-        { "path": "backend/app/core/deps.py", "line": 27, "end_line": 75, "label": "Auth dependencies" }
-      ]
-    },
-    {
-      "id": "commerce",
+      "id": "inventory_orders",
       "type": "backend",
-      "label": "Commerce Core",
-      "sublabel": "Catalog, matching, orders, stock",
-      "tag": "2 km -> 5 km",
-      "pos": [735, 300],
-      "size": [175, 64],
-      "sources": [
-        { "path": "backend/app/api/v1/endpoints/orders.py", "line": 109, "end_line": 180, "label": "Order transaction" },
-        { "path": "backend/app/services/store_matching_service.py", "line": 37, "end_line": 83, "label": "Store search" },
-        { "path": "backend/app/services/store_matching_service.py", "line": 89, "end_line": 156, "label": "Stock eligibility" }
+      "label": "Inventory & Orders",
+      "sublabel": "review, stock mutation, lifecycle",
+      "pos": [
+        320,
+        330
+      ],
+      "size": [
+        205,
+        82
       ]
     },
     {
-      "id": "inventory_ai",
+      "id": "rider_pool",
       "type": "backend",
-      "label": "Inventory Intelligence",
-      "sublabel": "Analyze -> review -> confirm",
-      "tag": "Retailer approval",
-      "pos": [735, 110],
-      "size": [175, 64],
-      "sources": [
-        { "path": "backend/app/api/v1/endpoints/inventory.py", "line": 52, "end_line": 80, "label": "Analyze endpoint" },
-        { "path": "backend/app/api/v1/endpoints/inventory.py", "line": 95, "end_line": 174, "label": "Confirm transaction" },
-        { "path": "backend/app/services/inventory_image_analyzer.py", "line": 19, "end_line": 95, "label": "Provider abstraction" }
+      "label": "Rider Pool & Assignment",
+      "sublabel": "eligibility, decline, exclusive claim",
+      "pos": [
+        640,
+        330
+      ],
+      "size": [
+        205,
+        82
       ]
     },
     {
-      "id": "delivery",
+      "id": "route_tracking",
       "type": "backend",
-      "label": "Delivery & Tracking",
-      "sublabel": "Claim, lifecycle, GPS trail",
-      "tag": "Atomic lock-in",
-      "pos": [735, 500],
-      "size": [175, 64],
-      "sources": [
-        { "path": "backend/app/services/delivery_service.py", "line": 28, "end_line": 33, "label": "State machine" },
-        { "path": "backend/app/services/delivery_service.py", "line": 126, "end_line": 220, "label": "Claim and reject" }
-      ]
-    },
-    {
-      "id": "realtime",
-      "type": "messagebus",
-      "label": "WebSocket Hub",
-      "sublabel": "Per-delivery live events",
-      "tag": "In memory",
-      "pos": [450, 500],
-      "size": [160, 64],
-      "sources": [
-        { "path": "backend/app/services/realtime_service.py", "line": 7, "end_line": 35, "label": "Connection manager" },
-        { "path": "backend/app/api/v1/endpoints/websocket.py", "line": 16, "end_line": 47, "label": "Socket endpoint" }
-      ]
-    },
-    {
-      "id": "neon",
-      "type": "database",
-      "label": "Neon PostgreSQL",
-      "sublabel": "Operational source of truth",
-      "tag": "SQLAlchemy + Alembic",
-      "pos": [995, 300],
-      "size": [170, 64],
-      "sources": [
-        { "path": "backend/app/db/session.py", "line": 1, "end_line": 22, "label": "Database session" },
-        { "path": "backend/alembic/env.py", "line": 11, "end_line": 24, "label": "Migrations" }
-      ]
-    },
-    {
-      "id": "gemini",
-      "type": "external",
-      "label": "Google Gemini API",
-      "sublabel": "Structured bill extraction",
-      "tag": "Server-side key",
-      "pos": [995, 110],
-      "size": [170, 64],
-      "sources": [
-        { "path": "backend/app/services/gemini_inventory_analyzer.py", "line": 87, "end_line": 119, "label": "Gemini adapter" },
-        { "path": "backend/app/services/gemini_inventory_analyzer.py", "line": 196, "end_line": 219, "label": "Structured output" }
+      "label": "Route & Live Tracking",
+      "sublabel": "server movement, GPS, WebSockets",
+      "pos": [
+        960,
+        330
+      ],
+      "size": [
+        205,
+        82
       ]
     },
     {
       "id": "mapbox",
       "type": "external",
       "label": "Mapbox GL JS",
-      "sublabel": "Maps, markers, route display",
-      "tag": "Browser SDK",
-      "pos": [255, 500],
-      "size": [165, 64],
-      "sources": [
-        { "path": "frontend/src/components/maps/MapView.tsx", "line": 106, "end_line": 129, "label": "Map runtime" },
-        { "path": "frontend/package.json", "line": 14, "end_line": 17, "label": "Mapbox dependency" }
+      "sublabel": "browser maps and markers",
+      "pos": [
+        50,
+        570
+      ],
+      "size": [
+        190,
+        72
+      ]
+    },
+    {
+      "id": "database",
+      "type": "database",
+      "label": "PostgreSQL on Neon",
+      "sublabel": "authoritative operational state",
+      "tag": "SQLAlchemy + Alembic",
+      "pos": [
+        600,
+        570
+      ],
+      "size": [
+        380,
+        72
       ]
     },
     {
       "id": "osrm",
       "type": "external",
-      "label": "OSRM",
-      "sublabel": "Road route, distance, ETA",
-      "tag": "HTTP provider",
-      "pos": [995, 500],
-      "size": [170, 64],
-      "sources": [
-        { "path": "backend/app/services/routing_service.py", "line": 10, "end_line": 32, "label": "Route client" },
-        { "path": "backend/app/core/config.py", "line": 15, "end_line": 16, "label": "Provider URL" }
+      "label": "OSRM Routing",
+      "sublabel": "road geometry, distance, ETA",
+      "pos": [
+        1240,
+        570
+      ],
+      "size": [
+        205,
+        72
+      ]
+    },
+    {
+      "id": "gemini",
+      "type": "external",
+      "label": "Gemini + PaddleOCR",
+      "sublabel": "review-only inventory candidates",
+      "pos": [
+        320,
+        570
+      ],
+      "size": [
+        205,
+        82
       ]
     }
   ],
   "boundaries": [
-    { "kind": "region", "label": "Untrusted browser / user device", "wraps": ["users", "role_spa"], "pad": 22 },
-    { "kind": "security-group", "label": "Trusted Dukaan2Door backend", "wraps": ["fastapi", "rbac", "commerce", "inventory_ai", "delivery", "realtime"], "pad": 24 },
-    { "kind": "region", "label": "Managed persistence boundary", "wraps": ["neon"], "pad": 18 },
-    { "kind": "region", "label": "External AI trust boundary", "wraps": ["gemini"], "pad": 18 },
-    { "kind": "region", "label": "External map boundary", "wraps": ["mapbox"], "pad": 18 },
-    { "kind": "region", "label": "External routing boundary", "wraps": ["osrm"], "pad": 18 }
+    {
+      "kind": "region",
+      "label": "React + TypeScript role portals",
+      "wraps": [
+        "customer",
+        "retailer",
+        "rider"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "FastAPI APIs + JWT role authorization",
+      "wraps": [
+        "retailer_pool",
+        "inventory_orders",
+        "rider_pool",
+        "route_tracking"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "Managed persistence",
+      "wraps": [
+        "database"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "Browser mapping",
+      "wraps": [
+        "mapbox"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "External routing",
+      "wraps": [
+        "osrm"
+      ],
+      "pad": 18
+    },
+    {
+      "kind": "region",
+      "label": "Inventory analysis providers",
+      "wraps": [
+        "gemini"
+      ],
+      "pad": 18
+    }
   ],
   "connections": [
-    { "id": "users-open-portals", "from": "users", "to": "role_spa", "label": "Role UI", "variant": "emphasis" },
-    { "id": "spa-call-api", "from": "role_spa", "to": "fastapi", "label": "HTTPS / JSON", "variant": "emphasis" },
-    { "id": "authorize-request", "from": "rbac", "to": "fastapi", "label": "JWT + role gate", "variant": "security", "fromSide": "bottom", "toSide": "top" },
-    { "id": "api-command", "from": "fastapi", "to": "commerce", "label": "Validated command", "variant": "emphasis" },
-    { "id": "commerce-persist", "from": "commerce", "to": "neon", "label": "SQL transaction", "variant": "emphasis" },
-    { "id": "api-analyze-inventory", "from": "fastapi", "to": "inventory_ai", "label": "Analyze upload", "fromSide": "right", "toSide": "left" },
-    { "id": "inventory-gemini", "from": "inventory_ai", "to": "gemini", "label": "Image + schema", "variant": "dashed" },
-    { "id": "reviewed-stock", "from": "inventory_ai", "to": "commerce", "label": "Confirmed stock", "fromSide": "bottom", "toSide": "top" },
-    { "id": "ready-for-delivery", "from": "commerce", "to": "delivery", "label": "Ready for pickup", "fromSide": "bottom", "toSide": "top" },
-    { "id": "delivery-route", "from": "delivery", "to": "osrm", "label": "Route request", "variant": "dashed" },
-    { "id": "delivery-events", "from": "delivery", "to": "realtime", "label": "Status + location" },
-    { "id": "live-browser-update", "from": "realtime", "to": "role_spa", "label": "WebSocket events", "fromSide": "top", "toSide": "bottom" },
-    { "id": "spa-render-map", "from": "role_spa", "to": "mapbox", "label": "Tiles + markers", "variant": "dashed", "fromSide": "bottom", "toSide": "top" }
+    {
+      "id": "customer-order",
+      "from": "customer",
+      "to": "retailer_pool",
+      "label": "order request",
+      "variant": "emphasis"
+    },
+    {
+      "id": "retailer-action",
+      "from": "retailer",
+      "to": "inventory_orders",
+      "label": "offer + fulfilment",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rider-action",
+      "from": "rider",
+      "to": "rider_pool",
+      "label": "claim + status",
+      "variant": "emphasis"
+    },
+    {
+      "id": "store-wins",
+      "from": "retailer_pool",
+      "to": "inventory_orders",
+      "label": "accepted store",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ready-order",
+      "from": "inventory_orders",
+      "to": "rider_pool",
+      "label": "ready for pickup",
+      "variant": "emphasis"
+    },
+    {
+      "id": "claimed-delivery",
+      "from": "rider_pool",
+      "to": "route_tracking",
+      "label": "accepted trip",
+      "variant": "emphasis"
+    },
+    {
+      "id": "live-customer",
+      "from": "route_tracking",
+      "to": "customer",
+      "label": "WebSocket updates",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "right"
+    },
+    {
+      "id": "customer-map",
+      "from": "customer",
+      "to": "mapbox",
+      "label": "map rendering",
+      "variant": "dashed"
+    },
+    {
+      "id": "inventory-ai",
+      "from": "inventory_orders",
+      "to": "gemini",
+      "label": "analyze image",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "order-state",
+      "from": "inventory_orders",
+      "to": "database",
+      "label": "stock + orders"
+    },
+    {
+      "id": "delivery-state",
+      "from": "rider_pool",
+      "to": "database",
+      "label": "claims + status"
+    },
+    {
+      "id": "tracking-state",
+      "from": "route_tracking",
+      "to": "database",
+      "label": "tracking history",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "id": "route-request",
+      "from": "route_tracking",
+      "to": "osrm",
+      "label": "route requests",
+      "variant": "dashed"
+    }
   ],
   "cards": [
     {
-      "dot": "cyan",
-      "title": "Primary Runtime Path",
+      "dot": "rose",
+      "title": "Order path",
       "items": [
-        "A role-specific React portal sends an authenticated command to FastAPI.",
-        "Commerce Core validates catalogue, location, store eligibility, price, and stock before one PostgreSQL transaction.",
-        "Neon remains authoritative for users, products, store inventory, orders, deliveries, and tracking history."
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "Inventory Onboarding",
-      "items": [
-        "Gemini returns structured inventory candidates; local PaddleOCR remains a provider fallback.",
-        "Analysis never writes stock. Retailers edit or remove candidates before confirmation.",
-        "Confirmation uses store ownership checks, exact matching, row locks, and adjustment history."
+        "Every stock-qualified retailer receives an offer; the first valid acceptance owns fulfilment.",
+        "Only READY_FOR_PICKUP orders enter the eligible rider pool; one atomic claim wins.",
+        "Pickup and delivery remain backend-authorized lifecycle transitions."
       ]
     },
     {
       "dot": "emerald",
-      "title": "Fulfilment & Live Tracking",
+      "title": "Tracking path",
       "items": [
-        "Retailer progression ends at READY_FOR_PICKUP; eligible riders then claim atomically.",
-        "Delivery state, rejection, capability checks, and GPS breadcrumbs are backend-authoritative.",
-        "OSRM supplies road geometry while the in-memory WebSocket hub fans live events back to connected portals."
+        "The backend requests one OSRM road route for each active leg and persists each point.",
+        "Movement continues independently of the rider browser tab and resumes after backend restart.",
+        "Authenticated WebSocket snapshots and events keep rider and customer maps synchronized."
       ]
     },
     {
-      "dot": "rose",
-      "title": "Trust Boundaries",
+      "dot": "cyan",
+      "title": "Inventory safety",
       "items": [
-        "Browser input and public map tokens are untrusted; JWT identity and role checks execute server-side.",
-        "Database and Gemini credentials stay inside the backend runtime.",
-        "Gemini, Mapbox, and OSRM are independent external providers; provider failure must not bypass domain validation."
+        "Gemini or PaddleOCR produces review-only candidates; analysis never changes stock.",
+        "Retailer confirmation controls catalog matching and positive or negative adjustments.",
+        "PostgreSQL remains authoritative for offers, stock, orders, deliveries, and tracking."
       ]
     }
   ]

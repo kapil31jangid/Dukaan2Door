@@ -1,7 +1,7 @@
 import { getToken } from './api';
 
 export interface WebSocketEvent<T = any> {
-  event: 'delivery_assigned' | 'delivery_location_updated' | 'delivery_status_updated' | 'delivery_completed' | string;
+  event: 'delivery_assigned' | 'delivery_location_snapshot' | 'delivery_location_updated' | 'delivery_status_updated' | 'delivery_completed' | string;
   data: T;
 }
 
