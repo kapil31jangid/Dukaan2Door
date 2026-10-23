@@ -35,6 +35,9 @@ htmlcov/
 .archify/
 skills-lock.json
 
+# Generated launch-video compositions and rendered media
+brag-output-*/
+
 # Local editor and IDE settings
 .vscode/
 .idea/

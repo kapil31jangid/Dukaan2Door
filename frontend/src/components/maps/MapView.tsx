@@ -109,8 +109,14 @@ export const MapView: React.FC<MapViewProps> = ({
   const circleIdsRef = useRef<string[]>([]);
   const markerAnimationsRef = useRef<Map<string, number>>(new Map());
   const markerRouteProgressRef = useRef<Map<string, number>>(new Map());
+  const routeSignatureRef = useRef<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const routeStart = routeGeometry?.coordinates?.[0];
+  const routeEnd = routeGeometry?.coordinates?.[routeGeometry.coordinates.length - 1];
+  const routeSignature = routeGeometry?.coordinates?.length
+    ? `${routeGeometry.coordinates.length}:${routeStart?.join(',')}:${routeEnd?.join(',')}`
+    : '';
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !token) {
@@ -158,6 +164,15 @@ export const MapView: React.FC<MapViewProps> = ({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isReady) return;
+
+    // Pickup and customer legs are distinct OSRM geometries. Progress from the
+    // previous leg must never be reused for the next route.
+    if (routeSignatureRef.current !== routeSignature) {
+      markerAnimationsRef.current.forEach((frame) => cancelAnimationFrame(frame));
+      markerAnimationsRef.current.clear();
+      markerRouteProgressRef.current.clear();
+      routeSignatureRef.current = routeSignature;
+    }
 
     const nextIds = new Set(markers.filter(validCoordinate).map((marker) => marker.id));
     markersRef.current.forEach((marker, id) => {
@@ -324,8 +339,6 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [isReady, markers, routeGeometry]);
 
-  const routeStart = routeGeometry?.coordinates?.[0];
-  const routeEnd = routeGeometry?.coordinates?.[routeGeometry.coordinates.length - 1];
   const fitSignature = [
     ...markers.filter((marker) => marker.kind !== 'rider').map((marker) => `${marker.id}:${marker.lng},${marker.lat}`),
     routeGeometry?.coordinates?.length || 0,

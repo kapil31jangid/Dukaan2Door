@@ -25,9 +25,16 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 const CART_KEY = 'd2d_cart';
+const CART_CATALOG_REVISION_KEY = 'd2d_cart_catalog_revision';
+// The presentation catalogue was refreshed with store-specific product IDs.
+// Discard carts saved before this revision instead of submitting stale IDs.
+const CART_CATALOG_REVISION = 'satellite-catalog-v2';
 
 function loadCart(): CartItem[] {
   try {
+    if (localStorage.getItem(CART_CATALOG_REVISION_KEY) !== CART_CATALOG_REVISION) {
+      return [];
+    }
     const raw = localStorage.getItem(CART_KEY);
     const items = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(items)) return [];
@@ -44,6 +51,7 @@ function loadCart(): CartItem[] {
 
 function saveCart(items: CartItem[]): void {
   localStorage.setItem(CART_KEY, JSON.stringify(items));
+  localStorage.setItem(CART_CATALOG_REVISION_KEY, CART_CATALOG_REVISION);
 }
 
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {

@@ -20,6 +20,7 @@ remain authoritative when implementation details change.
 | [Data ingestion](data-ingestion.md) | Source dataset staging, provenance, and catalog ingestion. |
 | [Business model](business-model.md) | Commercial hypotheses, editable unit economics, canvas, and validation plan. |
 | [Faculty feedback resolution](faculty-feedback-resolution.md) | Evidence and limitations for the eight faculty comments. |
+| [IDT-I project report draft](report/IDT-I-Dukaan2Door-Report.md) | Editable report following the supplied IDT-I format, with project-specific content and submission placeholders. |
 | [Complete workflow audit](audits/dukaan2door-complete-workflow-audit.md) | Verified customer-to-retailer-to-rider workflow and readiness verdict. |
 | [API verification matrix](audits/api-verification-matrix.md) | Every implemented REST/WebSocket route and its evidence level. |
 | [Database integrity report](audits/database-integrity-report.md) | PostgreSQL migration, locking, idempotency, and consistency evidence. |

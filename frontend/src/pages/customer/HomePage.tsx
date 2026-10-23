@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, MapPin, Package, Search, Store, Truck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { customerService } from '../../services/customerService';
-import { resolveAssetUrl } from '../../services/api';
+import { customerCatalogProducts } from '../../services/customerCatalog';
 import { Product } from '../../types/product';
 import { ProductCard } from '../../components/customer/ProductCard';
 import { ProductGridSkeleton } from '../../components/customer/ProductGrid';
@@ -25,7 +25,7 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     customerService.listProducts({ page_size: 100 })
-      .then((response) => { if (!cancelled) setProducts(response.products); })
+      .then((response) => { if (!cancelled) setProducts(customerCatalogProducts(response.products)); })
       .catch((err: any) => { if (!cancelled) setError(err.message || 'Unable to load the local store catalog.'); })
       .finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };

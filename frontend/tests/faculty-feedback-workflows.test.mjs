@@ -12,6 +12,7 @@ const orderConfirmation = readFileSync(new URL('../src/pages/customer/OrderConfi
 const apiClient = readFileSync(new URL('../src/services/api.ts', import.meta.url), 'utf8');
 const routePlaybackService = readFileSync(new URL('../../backend/app/services/route_playback_service.py', import.meta.url), 'utf8');
 const deliveryBackendService = readFileSync(new URL('../../backend/app/services/delivery_service.py', import.meta.url), 'utf8');
+const mapView = readFileSync(new URL('../src/components/maps/MapView.tsx', import.meta.url), 'utf8');
 
 test('inventory entry exposes bill, product-photo, and explicit adjustment workflows', () => {
   assert.match(inventoryModal, /Upload Bill \/ Handwritten List/);
@@ -61,6 +62,8 @@ test('delivery route playback covers pickup and customer legs with arrival-gated
   assert.match(availableOrders, /updateDeliveryStatus\(claimed\.delivery\.id, "ACCEPTED"\)/);
   assert.match(currentDelivery, /updateDeliveryStatus\(delivery\.id, 'OUT_FOR_DELIVERY'\)/);
   assert.match(currentDelivery, /pickupDwellSeconds = 120/);
+  assert.match(currentDelivery, /Mark picked up/);
+  assert.doesNotMatch(currentDelivery, /pickupWaitRemaining > 0\)\)/);
   assert.match(currentDelivery, /DeliveryWebSocketClient/);
   assert.doesNotMatch(currentDelivery, /requestAnimationFrame/);
   assert.doesNotMatch(currentDelivery, />Pause</);
@@ -68,7 +71,10 @@ test('delivery route playback covers pickup and customer legs with arrival-gated
   assert.match(routePlaybackService, /asyncio\.create_task/);
   assert.match(routePlaybackService, /ROUTE_PLAYBACK_SOURCE = "ROUTE_PLAYBACK"/);
   assert.match(routePlaybackService, /get_route/);
-  assert.match(deliveryBackendService, /PICKUP_DWELL_SECONDS/);
+  assert.match(deliveryBackendService, /DELIVERY_ARRIVAL_RADIUS_M/);
+  assert.doesNotMatch(deliveryBackendService, /Pickup verification is available/);
+  assert.match(mapView, /routeSignatureRef/);
+  assert.match(mapView, /markerRouteProgressRef\.current\.clear\(\)/);
 });
 
 test('active delivery polling is serialized and telemetry writes are bounded', () => {

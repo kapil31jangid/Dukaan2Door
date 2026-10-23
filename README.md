@@ -535,7 +535,7 @@ npm run preview -- --host 0.0.0.0
 | `ENABLE_ROUTE_PLAYBACK` | Run browser-independent OSRM route movement for a controlled walkthrough | Optional |
 | `ROUTE_PLAYBACK_SPEED_KMH` | Baseline route speed (default: `40`) | Optional |
 | `ROUTE_PLAYBACK_UPDATE_SECONDS` | Persisted tracking interval (default: `2.5`) | Optional |
-| `PICKUP_DWELL_SECONDS` | Required store wait before pickup confirmation (default: `120`) | Optional |
+| `PICKUP_DWELL_SECONDS` | Deprecated compatibility setting; pickup confirmation is enabled once the rider reaches the store | Optional |
 | `GEMINI_API_KEY` | Server-only Gemini key for inventory document analysis | Required for Gemini |
 | `GEMINI_MODEL` | Gemini model ID (default: `gemini-2.5-flash-lite`) | Optional |
 | `PADDLE_OCR_DETECTION_MODEL` | Detection model (default: `PP-OCRv6_small_det`) | Optional |
@@ -848,6 +848,7 @@ is deliberately extended with the optional CPU packages.
 | 📊 [Data Ingestion Pipeline](docs/data-ingestion.md) | External dataset staging, provenance, and data cleaning |
 | 💼 [Business Model](docs/business-model.md) | Commercial hypotheses, unit economics, canvas, and validation plan |
 | ✅ [Faculty Feedback Resolution](docs/faculty-feedback-resolution.md) | Evidence and limitations for all eight faculty comments |
+| 📝 [IDT-I Project Report Draft](docs/report/IDT-I-Dukaan2Door-Report.md) | Editable report aligned with the supplied IDT-I format |
 | 📝 [Survey Package](docs/survey/survey-methodology.md) | Consent-ready questionnaires, collection method, templates, and analysis workflow |
 
 ---

@@ -5,6 +5,9 @@ const TOKEN_KEY = 'd2d_access_token';
 export function resolveAssetUrl(value?: string | null): string | null {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
+  // Demo catalogue assets ship with the frontend, unlike retailer uploads
+  // which are served by the API under /uploads.
+  if (value.startsWith('/images/')) return value;
   return `${API_BASE_URL}${value}`;
 }
 

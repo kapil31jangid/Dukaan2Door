@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, ArrowUpDown, ChevronLeft, ChevronRight, Filter, MapPin, Store, Clock3 } from 'lucide-react';
 import { customerService } from '../../services/customerService';
+import { customerCatalogProducts } from '../../services/customerCatalog';
 import { Product } from '../../types/product';
 import { ProductGrid, ProductGridSkeleton } from '../../components/customer/ProductGrid';
 import { EmptyState } from '../../components/customer/EmptyState';
@@ -25,7 +26,8 @@ export const ProductListingPage: React.FC = () => {
 
   useEffect(() => {
     customerService.listProducts({ page_size: 100 }).then((data) => {
-      setCategories(Array.from(new Set(data.products.map((product) => product.category).filter((category): category is string => Boolean(category)))));
+      const catalogue = customerCatalogProducts(data.products);
+      setCategories(Array.from(new Set(catalogue.map((product) => product.category).filter((category): category is string => Boolean(category)))));
     }).catch(() => {
       // The catalog request below still provides the primary page state.
     });
@@ -44,11 +46,11 @@ export const ProductListingPage: React.FC = () => {
       try {
         const data = await customerService.listProducts({
           category: selectedCategory || undefined,
-          page,
-          page_size: PAGE_SIZE,
+          page: 1,
+          page_size: 100,
         });
 
-        let list = data.products;
+        let list = customerCatalogProducts(data.products);
         if (sortBy === 'price_asc') {
           list = [...list].sort((a, b) => a.price - b.price);
         } else if (sortBy === 'price_desc') {
@@ -56,8 +58,8 @@ export const ProductListingPage: React.FC = () => {
         }
 
         if (cancelled) return;
-        setProducts(list);
-        setTotal(data.total);
+        setProducts(list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
+        setTotal(list.length);
       } catch (err: any) {
         if (!cancelled) setError(err.message || 'Failed to load products.');
       } finally {

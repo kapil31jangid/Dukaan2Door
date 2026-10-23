@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { customerService } from '../../services/customerService';
+import { customerCatalogProducts } from '../../services/customerCatalog';
 import { Product } from '../../types/product';
 import { SearchBar } from '../../components/customer/SearchBar';
 import { ProductGrid, ProductGridSkeleton } from '../../components/customer/ProductGrid';
@@ -29,8 +30,12 @@ export const SearchPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await customerService.searchProducts({ q: q.trim(), category: selectedCategory, page, page_size: PAGE_SIZE });
-        if (current) { setProducts(data.products); setTotal(data.total); }
+        const data = await customerService.searchProducts({ q: q.trim(), category: selectedCategory, page: 1, page_size: 100 });
+        const catalogue = customerCatalogProducts(data.products);
+        if (current) {
+          setProducts(catalogue.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
+          setTotal(catalogue.length);
+        }
       } catch (err: any) {
         if (current) setError('Search failed. Please try again.');
       } finally {

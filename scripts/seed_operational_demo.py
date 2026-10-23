@@ -175,6 +175,22 @@ DELIVERY_PARTNERS = [
 ]
 
 
+def demo_product_image(name: str, category: str) -> str:
+    """Return a stable local catalogue image for a fictional demo product."""
+    normalized_name = name.lower()
+    if "rice" in normalized_name:
+        return "/images/products/demo-rice.webp"
+    if "milk" in normalized_name:
+        return "/images/products/demo-milk.webp"
+    if "bread" in normalized_name:
+        return "/images/products/demo-bread.webp"
+    if "oil" in normalized_name:
+        return "/images/products/demo-oil.webp"
+    if "banana" in normalized_name or category == "Fresh Produce":
+        return "/images/products/demo-bananas.webp"
+    return "/images/products/demo-pantry.webp"
+
+
 def get_or_create_user(db, email: str, role: UserRole) -> User:
     user = db.query(User).filter(User.email == email).first()
     if user:
@@ -261,6 +277,7 @@ def upsert_stores(db) -> None:
             product.description = f"Fictional demo product for {store.store_name}."
             product.category = category
             product.price = price
+            product.image_url = demo_product_image(name, category)
             product.is_active = True
 
             inventory = (

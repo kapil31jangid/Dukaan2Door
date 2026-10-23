@@ -274,19 +274,20 @@ export const CurrentDeliveryPage: React.FC = () => {
   const pickupWaitRemaining = delivery.status === 'ACCEPTED'
     ? Math.max(0, pickupDwellSeconds - arrivalAgeSeconds)
     : 0;
+  const pickupWindowLabel = `${Math.floor(pickupWaitRemaining / 60)}:${String(pickupWaitRemaining % 60).padStart(2, '0')}`;
   const nextAction = delivery.status === 'ASSIGNED'
     ? { label: 'Accept delivery', status: 'ACCEPTED' as DeliveryStatus }
     : delivery.status === 'ACCEPTED'
-      ? { label: pickupWaitRemaining > 0 ? `Pickup verification · ${Math.floor(pickupWaitRemaining / 60)}:${String(pickupWaitRemaining % 60).padStart(2, '0')}` : 'Mark picked up', status: 'PICKED_UP' as DeliveryStatus }
+      ? { label: arrivedAtTarget && pickupWaitRemaining > 0 ? `Mark picked up · ${pickupWindowLabel}` : 'Mark picked up', status: 'PICKED_UP' as DeliveryStatus }
       : delivery.status === 'OUT_FOR_DELIVERY'
         ? { label: 'Mark delivered', status: 'DELIVERED' as DeliveryStatus }
         : null;
   const nextActionDisabled = isUpdating
-    || (routePlaybackEnabled && delivery.status === 'ACCEPTED' && (!arrivedAtTarget || pickupWaitRemaining > 0))
+    || (routePlaybackEnabled && delivery.status === 'ACCEPTED' && !arrivedAtTarget)
     || (routePlaybackEnabled && delivery.status === 'OUT_FOR_DELIVERY' && !arrivedAtTarget);
   const tripState = delivery.status === 'ACCEPTED'
     ? arrivedAtTarget
-      ? pickupWaitRemaining > 0 ? 'Waiting at pickup' : 'Pickup verified'
+      ? pickupWaitRemaining > 0 ? `At pickup · ${pickupWindowLabel} verification window` : 'At pickup · pickup ready'
       : 'Heading to pickup'
     : delivery.status === 'OUT_FOR_DELIVERY'
       ? arrivedAtTarget ? 'Arrived at customer' : 'On the way'
