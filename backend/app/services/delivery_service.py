@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import math
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -347,14 +346,6 @@ def update_delivery_status(db: Session, delivery: Delivery, target_status: Deliv
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"The rider must reach the pickup store first ({round(pickup_distance_m)} m remaining)",
             )
-        dwell_elapsed = (datetime.utcnow() - pickup_arrival.recorded_at).total_seconds()
-        if dwell_elapsed < settings.PICKUP_DWELL_SECONDS:
-            remaining = max(1, math.ceil(settings.PICKUP_DWELL_SECONDS - dwell_elapsed))
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Pickup verification is available in {remaining} seconds",
-            )
-
     if target_status == DeliveryStatus.DELIVERED:
         journey_distance_m = calculate_distance_km(
             delivery.pickup_lat,

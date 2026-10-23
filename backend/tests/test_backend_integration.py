@@ -97,7 +97,7 @@ def test_zero_distance_delivery_can_complete_without_fake_movement():
     db.query.assert_not_called()
 
 
-def test_route_playback_requires_arrival_and_two_minute_pickup_dwell(monkeypatch):
+def test_route_playback_requires_arrival_but_allows_immediate_pickup_confirmation(monkeypatch):
     monkeypatch.setattr(settings, "ENABLE_ROUTE_PLAYBACK", True)
     monkeypatch.setattr(settings, "PICKUP_DWELL_SECONDS", 120)
     db = MagicMock()
@@ -113,19 +113,9 @@ def test_route_playback_requires_arrival_and_two_minute_pickup_dwell(monkeypatch
         order=SimpleNamespace(status=OrderStatus.READY_FOR_PICKUP),
         picked_up_at=None,
     )
-    pickup_point = SimpleNamespace(
-        lat=delivery.pickup_lat,
-        lng=delivery.pickup_lng,
-        recorded_at=datetime.utcnow() - timedelta(seconds=60),
-    )
+    pickup_point = SimpleNamespace(lat=delivery.pickup_lat, lng=delivery.pickup_lng, recorded_at=datetime.utcnow())
     db.query.return_value.filter.return_value.order_by.return_value.first.return_value = pickup_point
 
-    with pytest.raises(HTTPException) as waiting:
-        update_delivery_status(db, delivery, DeliveryStatus.PICKED_UP)
-    assert waiting.value.status_code == 409
-    assert "available in" in waiting.value.detail
-
-    pickup_point.recorded_at = datetime.utcnow() - timedelta(seconds=121)
     updated = update_delivery_status(db, delivery, DeliveryStatus.PICKED_UP)
     assert updated.status == DeliveryStatus.PICKED_UP
     assert updated.picked_up_at is not None
