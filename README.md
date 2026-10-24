@@ -852,12 +852,13 @@ is deliberately extended with the optional CPU packages.
 | 📝 [Survey Package](docs/survey/survey-methodology.md) | Consent-ready questionnaires, collection method, templates, and analysis workflow |
 
 ---
-Contributors:
-1.Kapil Jangid
-2.Tanisha Kadiya
-3.Kartik Rathva
-4.Shrija Makadia
-5.Heet Shah
+## Contributors
+
+- Kapil Jangid
+- Tanisha Kadiya
+- Kartik Rathva
+- Shrija Makadia
+- Heet Shah
 
 <div align="center">
 
